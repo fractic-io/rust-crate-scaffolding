@@ -134,9 +134,6 @@ fn resolve_inline_struct_fields(
             field.ty_tokens.clone(),
             helper_structs,
         )?;
-        // Defensive: some parsers may include a trailing comma in type tokens when
-        // capturing field types. Strip a trailing comma to avoid generating ", ,".
-        let ty_tokens = strip_trailing_comma(ty_tokens);
         out_fields.push(FieldSpec {
             name: field.name.clone(),
             ty_tokens: ty_tokens.clone(),
@@ -199,21 +196,6 @@ fn replace_inline_structs_in_tokens(
         }
     }
     Ok(out)
-}
-
-/// Remove a single trailing comma from a token stream if present.
-fn strip_trailing_comma(tokens: TokenStream2) -> TokenStream2 {
-    let mut items: Vec<TokenTree> = tokens.into_iter().collect();
-    if let Some(last) = items.last() {
-        if let TokenTree::Punct(p) = last {
-            if p.as_char() == ',' {
-                items.pop();
-            }
-        }
-    }
-    let mut out = TokenStream2::new();
-    out.extend(items);
-    out
 }
 
 fn build_helper_ident(fn_name: &Ident, chain: &[Ident]) -> Ident {

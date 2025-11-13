@@ -187,37 +187,29 @@ fn parse_value_until_key_or_end(
 /// the enclosing struct.
 fn read_type_tokens_until_comma_or_end(input: ParseStream<'_>) -> Result<TokenStream2> {
     let mut out = TokenStream2::new();
-    let mut paren = 0usize;
-    let mut bracket = 0usize;
     let mut angle = 0isize;
     while !input.is_empty() {
-        if paren == 0 && bracket == 0 && angle == 0 && input.peek(Token![,]) {
+        if angle == 0 && input.peek(Token![,]) {
             break;
         }
         // Look ahead for end of struct body (unconsumed by this function).
-        if paren == 0 && bracket == 0 && angle == 0 && input.peek(token::Brace) {
+        if angle == 0 && input.peek(token::Brace) {
             // This is the start of a new nested brace group in the type; we
             // should consume it entirely as a group.
             let group: Group = parse_next_group(input)?;
             out.extend([TokenTree::Group(group)]);
             continue;
         }
-        if paren == 0 && bracket == 0 && angle == 0 && input.is_empty() {
+        if angle == 0 && input.is_empty() {
             break;
         }
         // Consume one token and update nesting counters.
         let tt: TokenTree = input.parse()?;
         match &tt {
-            TokenTree::Group(g) => {
-                let delim = g.delimiter();
-                if delim == proc_macro2::Delimiter::Parenthesis {
-                    paren += 1;
-                } else if delim == proc_macro2::Delimiter::Bracket {
-                    bracket += 1;
-                } else if delim == proc_macro2::Delimiter::Brace {
-                    // Already handled above by parse_next_group, but keep safe path:
-                    // treat as opaque group.
-                }
+            TokenTree::Group(_) => {
+                // Treat parentheses and brackets as opaque groups; commas
+                // inside them should not affect our top-level comma detection.
+                // Braces are handled above via parse_next_group.
             }
             TokenTree::Punct(p) => {
                 let ch = p.as_char();
@@ -225,18 +217,6 @@ fn read_type_tokens_until_comma_or_end(input: ParseStream<'_>) -> Result<TokenSt
                     angle += 1;
                 } else if ch == '>' {
                     angle -= 1;
-                } else if ch == ')' {
-                    if paren > 0 {
-                        paren -= 1;
-                    }
-                } else if ch == ']' {
-                    if bracket > 0 {
-                        bracket -= 1;
-                    }
-                } else if ch == '(' {
-                    paren += 1;
-                } else if ch == '[' {
-                    bracket += 1;
                 }
             }
             _ => {}
@@ -253,30 +233,25 @@ fn read_tokens_until_next_key_or_end(
     stop: Option<KeyStop>,
 ) -> Result<TokenStream2> {
     let mut out = TokenStream2::new();
-    let mut paren = 0usize;
-    let mut bracket = 0usize;
     let mut angle = 0isize;
     loop {
         if content.is_empty() {
             break;
         }
-        if paren == 0 && bracket == 0 && angle == 0 {
+        if angle == 0 {
             if let Some(KeyStop::Output) = stop {
                 if content.peek(kw::output) && content.peek2(Token![:]) {
                     break;
                 }
             }
         }
-        // Consume token while tracking nesting. Treat nested groups as opaque but preserved.
+        // Consume token while tracking nesting. Treat nested groups as opaque
+        // but preserved.
         let tt: TokenTree = content.parse()?;
         match &tt {
-            TokenTree::Group(g) => {
-                let delim = g.delimiter();
-                if delim == proc_macro2::Delimiter::Parenthesis {
-                    paren += 1;
-                } else if delim == proc_macro2::Delimiter::Bracket {
-                    bracket += 1;
-                } // Braces are a single token here.
+            TokenTree::Group(_) => {
+                // Treat parentheses and brackets as opaque groups. Braces are a
+                // single token here.
             }
             TokenTree::Punct(p) => {
                 let ch = p.as_char();
@@ -284,18 +259,6 @@ fn read_tokens_until_next_key_or_end(
                     angle += 1;
                 } else if ch == '>' {
                     angle -= 1;
-                } else if ch == '(' {
-                    paren += 1;
-                } else if ch == ')' {
-                    if paren > 0 {
-                        paren -= 1;
-                    }
-                } else if ch == '[' {
-                    bracket += 1;
-                } else if ch == ']' {
-                    if bracket > 0 {
-                        bracket -= 1;
-                    }
                 }
             }
             _ => {}
