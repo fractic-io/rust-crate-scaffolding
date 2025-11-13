@@ -1,6 +1,5 @@
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use std::collections::HashSet;
 
 use crate::{
     helpers::to_pascal_case,
@@ -24,19 +23,13 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
 }
 
 fn generate_helper_structs(model: &ConfigModel) -> TokenStream {
-    // Deduplicate helper structs by name in case multiple occurrences were recorded.
-    let mut seen: HashSet<String> = HashSet::new();
-    let helpers = model.helper_structs.iter().filter_map(|h| {
-        let name_str = h.name.to_string();
-        if !seen.insert(name_str.clone()) {
-            return None;
-        }
+    let helpers = model.helper_structs.iter().map(|h| {
         let name = &h.name;
-        let body = &h.verbatim_tokens;
-        Some(quote! {
+        let body = &h.raw_tokens;
+        quote! {
             #[derive(::serde::Serialize, ::serde::Deserialize)]
             pub struct #name #body
-        })
+        }
     });
     quote! { #(#helpers)* }
 }
@@ -53,22 +46,17 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
         let output_ident: Ident = format_ident!("{}Output", base_pascal);
 
         // Define input struct if needed.
-        if let ValueModel::Struct {
-            verbatim_tokens, ..
-        } = &f.input
-        {
-            let body = verbatim_tokens;
+        if let ValueModel::Struct { raw_tokens, .. } = &f.input {
+            let body = raw_tokens;
             io_structs_accum.push(quote! {
                 #[derive(::serde::Serialize, ::serde::Deserialize)]
                 pub struct #input_ident #body
             });
         }
-        // Define output struct if needed (always define for Struct, even if single field).
-        if let ValueModel::Struct {
-            verbatim_tokens, ..
-        } = &f.output
-        {
-            let body = verbatim_tokens;
+        // Define output struct if needed (always define for Struct, even if
+        // single field).
+        if let ValueModel::Struct { raw_tokens, .. } = &f.output {
+            let body = raw_tokens;
             io_structs_accum.push(quote! {
                 #[derive(::serde::Serialize, ::serde::Deserialize)]
                 pub struct #output_ident #body

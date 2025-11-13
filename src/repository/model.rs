@@ -26,9 +26,9 @@ pub enum ValueModel {
         ty_tokens: TokenStream2,
     },
     Struct {
-        /// Verbatim tokens representing the inline struct with helper
+        /// Mostly-verbatim tokens representing the inline struct with helper
         /// replacements, including braces.
-        verbatim_tokens: TokenStream2,
+        raw_tokens: TokenStream2,
         /// Flattened list of fields, with helper replacements in types and no
         /// attributes.
         fields: Vec<FieldSpec>,
@@ -39,7 +39,7 @@ pub enum ValueModel {
 pub struct HelperStruct {
     pub name: Ident,
     /// Braced body tokens of the struct, with helper replacements completed.
-    pub verbatim_tokens: TokenStream2,
+    pub raw_tokens: TokenStream2,
     /// Flattened list of fields in this helper, for downstream codegen
     /// convenience.
     #[allow(dead_code)] // TODO: Remove once in use.
@@ -106,12 +106,9 @@ fn build_value_model(
             })
         }
         ast::ValueAst::Struct(s) => {
-            let (fields, verbatim_tokens) =
+            let (fields, raw_tokens) =
                 resolve_inline_struct_fields(fn_name, &[], s, helper_structs)?;
-            Ok(ValueModel::Struct {
-                verbatim_tokens,
-                fields,
-            })
+            Ok(ValueModel::Struct { raw_tokens, fields })
         }
     }
 }
@@ -147,12 +144,12 @@ fn resolve_inline_struct_fields(
         let attrs = field.attrs;
         // Rebuild field token with attributes preserved.
         let name = field.name;
-        let field_ts = quote! { #(#attrs)* #name: #ty_tokens };
+        let field_ts = quote! { #(#attrs)* pub #name: #ty_tokens };
         field_tokens.push(field_ts);
     }
     // Compose braced tokens with trailing commas for stability.
-    let verbatim = quote! { { #(#field_tokens,)* } };
-    Ok((out_fields, verbatim))
+    let raw_tokens = quote! { { #(#field_tokens,)* } };
+    Ok((out_fields, raw_tokens))
 }
 
 /// Walk arbitrary type tokens to find brace-delimited inline structs, convert
@@ -172,14 +169,14 @@ fn replace_inline_structs_in_tokens(
                 // Parse fields from the group's stream.
                 let inline: ast::InlineStructAst = syn::parse2(g.stream())?;
                 // Resolve nested within this struct first.
-                let (fields, verbatim) =
+                let (fields, raw_tokens) =
                     resolve_inline_struct_fields(fn_name, chain, inline, helper_structs)?;
                 // Create helper struct name using fn_name + chain.
                 let helper_ident = build_helper_ident(fn_name, chain);
                 // Record helper.
                 helper_structs.push(HelperStruct {
                     name: helper_ident.clone(),
-                    verbatim_tokens: verbatim,
+                    raw_tokens,
                     fields,
                 });
                 // Replace the group with the helper ident token.
