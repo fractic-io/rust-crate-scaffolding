@@ -153,7 +153,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     quote! {
         #[allow(unused_macros)]
         macro_rules! #macro_name_ident {
-            ($ctx_view:path, $ctx_db_method:ident, $crud_algorithms:ty) => {
+            ($ctx_view:path => $ctx_db_method:ident, $crud_algorithms:ty) => {
                 pub struct #impl_struct_ident {
                     #(#root_fields,)*
                     #(#child_fields,)*
