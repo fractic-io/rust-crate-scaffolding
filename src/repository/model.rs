@@ -2,7 +2,7 @@ use proc_macro2::{Delimiter, Group, Ident, Span, TokenStream as TokenStream2, To
 use quote::quote;
 use syn::{Error, Result};
 
-use crate::repository::ast;
+use crate::{helpers::to_pascal_case, repository::ast};
 
 #[derive(Debug)]
 pub struct ConfigModel {
@@ -42,6 +42,7 @@ pub struct HelperStruct {
     pub verbatim_tokens: TokenStream2,
     /// Flattened list of fields in this helper, for downstream codegen
     /// convenience.
+    #[allow(dead_code)] // TODO: Remove once in use.
     pub fields: Vec<FieldSpec>,
 }
 
@@ -136,6 +137,9 @@ fn resolve_inline_struct_fields(
             field.ty_tokens.clone(),
             helper_structs,
         )?;
+        // Defensive: some parsers may include a trailing comma in type tokens when
+        // capturing field types. Strip a trailing comma to avoid generating ", ,".
+        let ty_tokens = strip_trailing_comma(ty_tokens);
         out_fields.push(FieldSpec {
             name: field.name.clone(),
             ty_tokens: ty_tokens.clone(),
@@ -200,28 +204,25 @@ fn replace_inline_structs_in_tokens(
     Ok(out)
 }
 
+/// Remove a single trailing comma from a token stream if present.
+fn strip_trailing_comma(tokens: TokenStream2) -> TokenStream2 {
+    let mut items: Vec<TokenTree> = tokens.into_iter().collect();
+    if let Some(last) = items.last() {
+        if let TokenTree::Punct(p) = last {
+            if p.as_char() == ',' {
+                items.pop();
+            }
+        }
+    }
+    let mut out = TokenStream2::new();
+    out.extend(items);
+    out
+}
+
 fn build_helper_ident(fn_name: &Ident, chain: &[Ident]) -> Ident {
     let mut name = to_pascal_case(&fn_name.to_string());
     for c in chain {
         name.push_str(&to_pascal_case(&c.to_string()));
     }
     Ident::new(&name, Span::call_site())
-}
-
-fn to_pascal_case(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut new_word = true;
-    for ch in input.chars() {
-        if ch.is_ascii_alphanumeric() {
-            if new_word {
-                out.push(ch.to_ascii_uppercase());
-                new_word = false;
-            } else {
-                out.push(ch);
-            }
-        } else {
-            new_word = true;
-        }
-    }
-    out
 }

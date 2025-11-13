@@ -34,3 +34,22 @@ pub fn to_snake_case(name: &str) -> String {
     }
     out
 }
+
+/// Minimal snake_case to PascalCase.
+pub fn to_pascal_case(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut new_word = true;
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if new_word {
+                out.push(ch.to_ascii_uppercase());
+                new_word = false;
+            } else {
+                out.push(ch);
+            }
+        } else {
+            new_word = true;
+        }
+    }
+    out
+}
