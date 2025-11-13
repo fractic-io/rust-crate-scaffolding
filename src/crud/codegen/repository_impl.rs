@@ -153,7 +153,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     quote! {
         #[allow(unused_macros)]
         macro_rules! #macro_name_ident {
-            ($api_ctx_view:ty, $ctx_db_expr:expr, $crud_algorithms:ty) => {
+            ($ctx_view:path, $ctx_db_method:ident, $crud_algorithms:ty) => {
                 pub struct #impl_struct_ident {
                     #(#root_fields,)*
                     #(#child_fields,)*
@@ -161,8 +161,8 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 }
 
                 impl #impl_struct_ident {
-                    pub async fn new(ctx: &dyn $api_ctx_view) -> ::std::result::Result<Self, ::fractic_server_error::ServerError> {
-                        let dynamo_util = ::std::sync::Arc::new(::fractic_aws_dynamo::util::DynamoUtil::new(ctx, $ctx_db_expr).await?);
+                    pub async fn new(ctx: &dyn $ctx_view) -> ::std::result::Result<Self, ::fractic_server_error::ServerError> {
+                        let dynamo_util = ::std::sync::Arc::new(::fractic_aws_dynamo::util::DynamoUtil::new(ctx, ctx.$ctx_db_method()).await?);
                         let crud_algorithms = ::std::sync::Arc::new(<$crud_algorithms>::new(dynamo_util.clone()));
                         Ok(Self {
                             #(#root_inits,)*
