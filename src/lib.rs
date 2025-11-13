@@ -3,6 +3,7 @@ use quote::quote;
 use syn::parse::{Parse as _, Parser};
 
 mod crud;
+mod helpers;
 
 #[proc_macro]
 pub fn crud_scaffolding(input: TokenStream) -> TokenStream {
