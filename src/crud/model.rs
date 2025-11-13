@@ -1,8 +1,9 @@
-use crate::ast;
 use syn::{Error, Ident, Result};
 
+use crate::crud::ast;
+
 #[derive(Debug)]
-pub struct RepositoryScaffolding {
+pub struct ConfigModel {
     pub repository_name: Ident,
     pub roots: Vec<RootDef>,
     pub children: Vec<ChildDef>,
@@ -30,10 +31,10 @@ pub struct BatchDef {
     pub parent: Ident,
 }
 
-impl TryFrom<ast::Config> for RepositoryScaffolding {
+impl TryFrom<ast::ConfigAst> for ConfigModel {
     type Error = Error;
 
-    fn try_from(value: ast::Config) -> Result<Self> {
+    fn try_from(value: ast::ConfigAst) -> Result<Self> {
         let mut roots = Vec::new();
         let mut children = Vec::new();
         let mut batches = Vec::new();

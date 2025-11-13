@@ -3,12 +3,12 @@ use syn::parse::{Parse, ParseStream};
 use syn::{Error, Ident, Result, Token, braced, token};
 
 #[derive(Debug)]
-pub struct Config {
+pub struct ConfigAst {
     pub repository_name: Ident,
     pub objects: Vec<ObjectDef>,
 }
 
-impl Parse for Config {
+impl Parse for ConfigAst {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
         // Expect a repository name first, followed by a semicolon.
         let repository_name: Ident = input.parse()?;
