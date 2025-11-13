@@ -1,5 +1,5 @@
 [package]
-name = "rust-crate-scaffolding"
+name = "fractic-crate-scaffolding"
 version = "0.1.0"
 authors = ["Mart van Buren <mart@fractic.io>"]
 edition = "2024"
