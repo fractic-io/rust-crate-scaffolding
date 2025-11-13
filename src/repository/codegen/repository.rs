@@ -1,5 +1,6 @@
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
+use syn::Type;
 
 use crate::{
     helpers::to_pascal_case,
@@ -25,10 +26,12 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
 fn generate_helper_structs(model: &ConfigModel) -> TokenStream {
     let helpers = model.helper_structs.iter().map(|h| {
         let name = &h.name;
-        let body = &h.raw_tokens;
+        let fields = generate_struct_fields(&h.fields);
         quote! {
             #[derive(::serde::Serialize, ::serde::Deserialize)]
-            pub struct #name #body
+            pub struct #name {
+                #(#fields),*
+            }
         }
     });
     quote! { #(#helpers)* }
@@ -46,20 +49,24 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
         let output_ident: Ident = format_ident!("{}Output", base_pascal);
 
         // Define input struct if needed.
-        if let ValueModel::Struct { raw_tokens, .. } = &f.input {
-            let body = raw_tokens;
+        if let ValueModel::Struct { fields } = &f.input {
+            let fields_ts = generate_struct_fields(fields);
             io_structs_accum.push(quote! {
                 #[derive(::serde::Deserialize)]
-                pub struct #input_ident #body
+                pub struct #input_ident {
+                    #(#fields_ts),*
+                }
             });
         }
         // Define output struct if needed (always define for Struct, even if
         // single field).
-        if let ValueModel::Struct { raw_tokens, .. } = &f.output {
-            let body = raw_tokens;
+        if let ValueModel::Struct { fields } = &f.output {
+            let fields_ts = generate_struct_fields(fields);
             io_structs_accum.push(quote! {
                 #[derive(::serde::Serialize)]
-                pub struct #output_ident #body
+                pub struct #output_ident {
+                    #(#fields_ts),*
+                }
             });
         }
 
@@ -85,7 +92,9 @@ fn build_method_inputs(input: &ValueModel) -> TokenStream {
             quote! { , input: #ty_tokens }
         }
         ValueModel::Struct { fields, .. } => {
-            let params = fields.iter().map(|FieldSpec { name, ty_tokens }| {
+            let params = fields.iter().map(|f: &FieldSpec| {
+                let name = &f.name;
+                let ty_tokens = &f.ty_tokens;
                 quote! { #name: #ty_tokens }
             });
             quote! { , #(#params),* }
@@ -111,4 +120,26 @@ fn build_method_output(output: &ValueModel, output_struct_ident: &Ident) -> Toke
             }
         }
     }
+}
+
+fn generate_struct_fields(fields: &[FieldSpec]) -> Vec<TokenStream> {
+    fields
+        .iter()
+        .map(|f| {
+            let attrs = &f.attrs;
+            let name = &f.name;
+            let ty = strip_top_level_reference(f.ty_tokens.clone());
+            quote! { #(#attrs)* pub #name: #ty }
+        })
+        .collect()
+}
+
+fn strip_top_level_reference(tokens: TokenStream) -> TokenStream {
+    if let Ok(ty) = syn::parse2::<Type>(tokens.clone()) {
+        if let Type::Reference(r) = ty {
+            let inner = *r.elem;
+            return quote! { #inner };
+        }
+    }
+    tokens
 }

@@ -1,6 +1,5 @@
 use proc_macro2::{Delimiter, Group, Ident, Span, TokenStream as TokenStream2, TokenTree};
-use quote::quote;
-use syn::{Error, Result};
+use syn::{Attribute, Error, Result};
 
 use crate::{helpers::to_pascal_case, repository::ast};
 
@@ -26,11 +25,8 @@ pub enum ValueModel {
         ty_tokens: TokenStream2,
     },
     Struct {
-        /// Mostly-verbatim tokens representing the inline struct with helper
-        /// replacements, including braces.
-        raw_tokens: TokenStream2,
-        /// Flattened list of fields, with helper replacements in types and no
-        /// attributes.
+        /// Flattened list of fields, with helper replacements in types and all
+        /// attributes preserved for later codegen.
         fields: Vec<FieldSpec>,
     },
 }
@@ -38,16 +34,13 @@ pub enum ValueModel {
 #[derive(Debug)]
 pub struct HelperStruct {
     pub name: Ident,
-    /// Braced body tokens of the struct, with helper replacements completed.
-    pub raw_tokens: TokenStream2,
-    /// Flattened list of fields in this helper, for downstream codegen
-    /// convenience.
-    #[allow(dead_code)] // TODO: Remove once in use.
+    /// Flattened list of fields in this helper, for downstream codegen.
     pub fields: Vec<FieldSpec>,
 }
 
 #[derive(Debug, Clone)]
 pub struct FieldSpec {
+    pub attrs: Vec<Attribute>,
     pub name: Ident,
     pub ty_tokens: TokenStream2,
 }
@@ -106,25 +99,21 @@ fn build_value_model(
             })
         }
         ast::ValueAst::Struct(s) => {
-            let (fields, raw_tokens) =
-                resolve_inline_struct_fields(fn_name, &[], s, helper_structs)?;
-            Ok(ValueModel::Struct { raw_tokens, fields })
+            let fields = resolve_inline_struct_fields(fn_name, &[], s, helper_structs)?;
+            Ok(ValueModel::Struct { fields })
         }
     }
 }
 
 /// Resolve helper structs appearing within an inline struct's fields and
-/// produce:
-/// - flattened field specs;
-/// - verbatim braced tokens for the struct with helper names substituted.
+/// produce flattened field specs (attributes preserved).
 fn resolve_inline_struct_fields(
     fn_name: &Ident,
     parent_chain: &[Ident],
     s: ast::InlineStructAst,
     helper_structs: &mut Vec<HelperStruct>,
-) -> Result<(Vec<FieldSpec>, TokenStream2)> {
+) -> Result<Vec<FieldSpec>> {
     let mut out_fields: Vec<FieldSpec> = Vec::new();
-    let mut field_tokens: Vec<TokenStream2> = Vec::new();
     for field in s.fields {
         let mut chain = parent_chain.to_vec();
         chain.push(field.name.clone());
@@ -135,20 +124,12 @@ fn resolve_inline_struct_fields(
             helper_structs,
         )?;
         out_fields.push(FieldSpec {
-            name: field.name.clone(),
-            ty_tokens: ty_tokens.clone(),
+            attrs: field.attrs,
+            name: field.name,
+            ty_tokens,
         });
-        let attrs = field.attrs;
-        // Rebuild field token with attributes preserved.
-        let name = field.name;
-        // For raw_tokens used to generate struct bodies, strip any top-level reference.
-        let ty_tokens_no_refs = strip_top_level_reference(ty_tokens.clone());
-        let field_ts = quote! { #(#attrs)* pub #name: #ty_tokens_no_refs };
-        field_tokens.push(field_ts);
     }
-    // Compose braced tokens with trailing commas for stability.
-    let raw_tokens = quote! { { #(#field_tokens,)* } };
-    Ok((out_fields, raw_tokens))
+    Ok(out_fields)
 }
 
 /// Walk arbitrary type tokens to find brace-delimited inline structs, convert
@@ -167,15 +148,13 @@ fn replace_inline_structs_in_tokens(
                 // This is an inline struct at this position.
                 // Parse fields from the group's stream.
                 let inline: ast::InlineStructAst = syn::parse2(g.stream())?;
-                // Resolve nested within this struct first.
-                let (fields, raw_tokens) =
-                    resolve_inline_struct_fields(fn_name, chain, inline, helper_structs)?;
+                // Resolve nested within this struct first to a flat field list.
+                let fields = resolve_inline_struct_fields(fn_name, chain, inline, helper_structs)?;
                 // Create helper struct name using fn_name + chain.
                 let helper_ident = build_helper_ident(fn_name, chain);
                 // Record helper.
                 helper_structs.push(HelperStruct {
                     name: helper_ident.clone(),
-                    raw_tokens,
                     fields,
                 });
                 // Replace the group with the helper ident token.
@@ -206,16 +185,4 @@ fn build_helper_ident(fn_name: &Ident, chain: &[Ident]) -> Ident {
         name.push_str(&to_pascal_case(&c.to_string()));
     }
     Ident::new(&name, Span::call_site())
-}
-
-/// Remove a single, top-level reference from a type token stream if present.
-/// Falls back to the original tokens on parse errors.
-fn strip_top_level_reference(tokens: TokenStream2) -> TokenStream2 {
-    if let Ok(ty) = syn::parse2::<syn::Type>(tokens.clone()) {
-        if let syn::Type::Reference(r) = ty {
-            let inner = *r.elem;
-            return quote! { #inner };
-        }
-    }
-    tokens
 }
