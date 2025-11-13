@@ -3,6 +3,7 @@ use syn::{Error, Ident, Result};
 
 #[derive(Debug)]
 pub struct RepositoryScaffolding {
+    pub repository_name: Ident,
     pub roots: Vec<RootDef>,
     pub children: Vec<ChildDef>,
     pub batches: Vec<BatchDef>,
@@ -83,6 +84,7 @@ impl TryFrom<ast::Config> for RepositoryScaffolding {
         }
 
         Ok(Self {
+            repository_name: value.repository_name,
             roots,
             children,
             batches,

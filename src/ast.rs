@@ -4,17 +4,44 @@ use syn::{Error, Ident, Result, Token, braced, token};
 
 #[derive(Debug)]
 pub struct Config {
+    pub repository_name: Ident,
     pub objects: Vec<ObjectDef>,
 }
 
 impl Parse for Config {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
+        // Expect a repository name first, followed by a semicolon.
+        let repository_name: Ident = input.parse()?;
+        if !input.peek(Token![;]) {
+            if ObjectKind::is_keyword_ident(&repository_name) {
+                // Provide a more helpful error if they started with an object
+                // keyword.
+                return Err(Error::new(
+                    repository_name.span(),
+                    "expected repository name before object definitions; add an identifier and \
+                     `;` (e.g., `MyRepo;`)",
+                ));
+            } else {
+                // Otherwise a more generic error message.
+                return Err(Error::new(
+                    repository_name.span(),
+                    "expected `;` after repository name (e.g., `MyRepo;`)",
+                ));
+            }
+        }
+        let _semi: Token![;] = input.parse()?; // Consume semicolon.
+
+        // Parse the object definitions.
         let mut objects = Vec::new();
         while !input.is_empty() {
             objects.push(input.parse()?);
-            // Optional separators (newlines/whitespace are naturally consumed by syn).
+            // Optional separators (newlines/whitespace are naturally consumed
+            // by syn).
         }
-        Ok(Self { objects })
+        Ok(Self {
+            repository_name,
+            objects,
+        })
     }
 }
 
@@ -29,23 +56,35 @@ impl ObjectKind {
     fn expected_list() -> &'static str {
         "`root`, `child`, or `batch`"
     }
+
+    fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "root" => Some(Self::Root),
+            "child" => Some(Self::Child),
+            "batch" => Some(Self::Batch),
+            _ => None,
+        }
+    }
+
+    fn is_keyword_ident(ident: &Ident) -> bool {
+        Self::from_str(ident.to_string().as_str()).is_some()
+    }
 }
 
 impl Parse for ObjectKind {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
         let ident: Ident = input.parse()?;
-        match ident.to_string().as_str() {
-            "root" => Ok(Self::Root),
-            "child" => Ok(Self::Child),
-            "batch" => Ok(Self::Batch),
-            _ => Err(Error::new(
+        if let Some(kind) = Self::from_str(ident.to_string().as_str()) {
+            Ok(kind)
+        } else {
+            Err(Error::new(
                 ident.span(),
                 format!(
                     "unknown type `{}`; expected {}",
                     ident,
                     Self::expected_list()
                 ),
-            )),
+            ))
         }
     }
 }
