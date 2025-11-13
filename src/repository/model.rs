@@ -141,7 +141,9 @@ fn resolve_inline_struct_fields(
         let attrs = field.attrs;
         // Rebuild field token with attributes preserved.
         let name = field.name;
-        let field_ts = quote! { #(#attrs)* pub #name: #ty_tokens };
+        // For raw_tokens used to generate struct bodies, strip any top-level reference.
+        let ty_tokens_no_refs = strip_top_level_reference(ty_tokens.clone());
+        let field_ts = quote! { #(#attrs)* pub #name: #ty_tokens_no_refs };
         field_tokens.push(field_ts);
     }
     // Compose braced tokens with trailing commas for stability.
@@ -204,4 +206,16 @@ fn build_helper_ident(fn_name: &Ident, chain: &[Ident]) -> Ident {
         name.push_str(&to_pascal_case(&c.to_string()));
     }
     Ident::new(&name, Span::call_site())
+}
+
+/// Remove a single, top-level reference from a type token stream if present.
+/// Falls back to the original tokens on parse errors.
+fn strip_top_level_reference(tokens: TokenStream2) -> TokenStream2 {
+    if let Ok(ty) = syn::parse2::<syn::Type>(tokens.clone()) {
+        if let syn::Type::Reference(r) = ty {
+            let inner = *r.elem;
+            return quote! { #inner };
+        }
+    }
+    tokens
 }

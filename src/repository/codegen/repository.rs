@@ -49,7 +49,7 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
         if let ValueModel::Struct { raw_tokens, .. } = &f.input {
             let body = raw_tokens;
             io_structs_accum.push(quote! {
-                #[derive(::serde::Serialize, ::serde::Deserialize)]
+                #[derive(::serde::Deserialize)]
                 pub struct #input_ident #body
             });
         }
@@ -58,7 +58,7 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
         if let ValueModel::Struct { raw_tokens, .. } = &f.output {
             let body = raw_tokens;
             io_structs_accum.push(quote! {
-                #[derive(::serde::Serialize, ::serde::Deserialize)]
+                #[derive(::serde::Serialize)]
                 pub struct #output_ident #body
             });
         }
