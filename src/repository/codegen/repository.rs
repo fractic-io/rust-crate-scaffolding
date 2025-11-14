@@ -28,7 +28,7 @@ fn generate_helper_structs(model: &ConfigModel) -> TokenStream {
         let name = &h.name;
         let fields = generate_struct_fields(&h.fields);
         quote! {
-            #[derive(::serde::Serialize, ::serde::Deserialize)]
+            #[derive(::core::clone::Clone, ::core::fmt::Debug, ::serde::Serialize, ::serde::Deserialize)]
             pub struct #name {
                 #(#fields),*
             }
@@ -52,7 +52,7 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
         if let ValueModel::Struct { fields } = &f.input {
             let fields_ts = generate_struct_fields(fields);
             io_structs_accum.push(quote! {
-                #[derive(::serde::Deserialize)]
+                #[derive(::core::clone::Clone, ::core::fmt::Debug, ::serde::Deserialize)]
                 pub struct #input_ident {
                     #(#fields_ts),*
                 }
@@ -63,7 +63,7 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
         if let ValueModel::Struct { fields } = &f.output {
             let fields_ts = generate_struct_fields(fields);
             io_structs_accum.push(quote! {
-                #[derive(::serde::Serialize)]
+                #[derive(::core::clone::Clone, ::core::fmt::Debug, ::serde::Serialize)]
                 pub struct #output_ident {
                     #(#fields_ts),*
                 }
