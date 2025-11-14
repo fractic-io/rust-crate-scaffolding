@@ -74,12 +74,18 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
         let inputs_ts = build_method_inputs(&f.input);
 
         // Build return type for the trait method.
-        let output_ts = build_method_output(&f.output, &output_ident);
+        let output_ts = build_method_output(&f.output, &output_ident, f.is_direct);
 
-        // Compose async method signature.
-        trait_methods.push(quote! {
-            async fn #fn_ident(&self #inputs_ts) -> #output_ts;
-        });
+        // Compose method signature.
+        if f.is_blocking {
+            trait_methods.push(quote! {
+                fn #fn_ident(&self #inputs_ts) -> #output_ts;
+            });
+        } else {
+            trait_methods.push(quote! {
+                async fn #fn_ident(&self #inputs_ts) -> #output_ts;
+            });
+        }
     }
 
     (quote! { #(#io_structs_accum)* }, trait_methods)
@@ -102,21 +108,28 @@ fn build_method_inputs(input: &ValueModel) -> TokenStream {
     }
 }
 
-fn build_method_output(output: &ValueModel, output_struct_ident: &Ident) -> TokenStream {
+fn build_method_output(
+    output: &ValueModel,
+    output_struct_ident: &Ident,
+    is_direct: bool,
+) -> TokenStream {
+    fn wrap(is_direct: bool, ty: TokenStream) -> TokenStream {
+        if is_direct {
+            quote! { #ty }
+        } else {
+            quote! { ::std::result::Result<#ty, ::fractic_server_error::ServerError> }
+        }
+    }
     match output {
-        ValueModel::None => {
-            quote! { ::std::result::Result<(), ::fractic_server_error::ServerError> }
-        }
-        ValueModel::SingleType { ty_tokens } => {
-            quote! { ::std::result::Result<#ty_tokens, ::fractic_server_error::ServerError> }
-        }
+        ValueModel::None => wrap(is_direct, quote! { () }),
+        ValueModel::SingleType { ty_tokens } => wrap(is_direct, quote! { #ty_tokens }),
         ValueModel::Struct { fields, .. } => {
             if fields.len() == 1 {
                 let ty = &fields[0].ty_tokens;
-                quote! { ::std::result::Result<#ty, ::fractic_server_error::ServerError> }
+                wrap(is_direct, quote! { #ty })
             } else {
                 let out = output_struct_ident;
-                quote! { ::std::result::Result<#out, ::fractic_server_error::ServerError> }
+                wrap(is_direct, quote! { #out })
             }
         }
     }

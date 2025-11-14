@@ -4,6 +4,9 @@ use syn::{Attribute, Error, Ident, Result, Token, braced, token};
 
 mod kw {
     syn::custom_keyword!(function);
+    syn::custom_keyword!(function_direct);
+    syn::custom_keyword!(blocking);
+    syn::custom_keyword!(blocking_direct);
     syn::custom_keyword!(input);
     syn::custom_keyword!(output);
 }
@@ -47,12 +50,38 @@ pub struct FunctionAst {
     pub name: Ident,
     pub input: ValueAst,
     pub output: ValueAst,
+    pub kind: FunctionKindAst,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionKindAst {
+    Async,
+    AsyncDirect,
+    Blocking,
+    BlockingDirect,
 }
 
 impl Parse for FunctionAst {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
-        // 'function' <name> { input: ..., output: ... }
-        let _func_kw: kw::function = input.parse()?;
+        // 'function' | 'blocking' <name> { input: ..., output: ... }
+        let kind = if input.peek(kw::function) {
+            let _func_kw: kw::function = input.parse()?;
+            FunctionKindAst::Async
+        } else if input.peek(kw::function_direct) {
+            let _func_kw: kw::function_direct = input.parse()?;
+            FunctionKindAst::AsyncDirect
+        } else if input.peek(kw::blocking) {
+            let _blk_kw: kw::blocking = input.parse()?;
+            FunctionKindAst::Blocking
+        } else if input.peek(kw::blocking_direct) {
+            let _blk_kw: kw::blocking_direct = input.parse()?;
+            FunctionKindAst::BlockingDirect
+        } else {
+            return Err(Error::new(
+                Span::call_site(),
+                "expected `function`, `function_direct`, `blocking`, or `blocking_direct`",
+            ));
+        };
         let name: Ident = input.parse()?;
 
         let content;
@@ -109,6 +138,7 @@ impl Parse for FunctionAst {
             name,
             input,
             output,
+            kind,
         })
     }
 }

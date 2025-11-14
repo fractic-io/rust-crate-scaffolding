@@ -15,6 +15,8 @@ pub struct FunctionModel {
     pub name: Ident,
     pub input: ValueModel,
     pub output: ValueModel,
+    pub is_blocking: bool,
+    pub is_direct: bool,
 }
 
 #[derive(Debug)]
@@ -72,10 +74,18 @@ fn build_function_model(
     let fn_name = func.name.clone();
     let input = build_value_model(&fn_name, None, func.input, helper_structs)?;
     let output = build_value_model(&fn_name, None, func.output, helper_structs)?;
+    let (is_blocking, is_direct) = match func.kind {
+        ast::FunctionKindAst::Async => (false, false),
+        ast::FunctionKindAst::AsyncDirect => (false, true),
+        ast::FunctionKindAst::Blocking => (true, false),
+        ast::FunctionKindAst::BlockingDirect => (true, true),
+    };
     Ok(FunctionModel {
         name: fn_name,
         input,
         output,
+        is_blocking,
+        is_direct,
     })
 }
 
