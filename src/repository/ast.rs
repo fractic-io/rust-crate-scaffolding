@@ -1,4 +1,4 @@
-use proc_macro2::{Group, TokenStream as TokenStream2, TokenTree};
+use proc_macro2::{Group, Span, TokenStream as TokenStream2, TokenTree};
 use syn::parse::{Parse, ParseStream};
 use syn::{Attribute, Error, Ident, Result, Token, braced, token};
 
@@ -23,6 +23,15 @@ impl Parse for ConfigAst {
         // Parse zero or more function blocks.
         let mut functions = Vec::new();
         while !input.is_empty() {
+            // Check for accidental comma.
+            if input.peek(Token![,]) {
+                // Consume the comma to anchor the error here, then report.
+                let _comma: Token![,] = input.parse()?;
+                return Err(Error::new(
+                    Span::call_site(),
+                    "unexpected ',' between function blocks",
+                ));
+            }
             functions.push(input.parse()?);
         }
 
@@ -54,6 +63,15 @@ impl Parse for FunctionAst {
         let mut input_val: Option<ValueAst> = None;
         let mut output_val: Option<ValueAst> = None;
         while !content.is_empty() {
+            // Check for accidental comma.
+            if content.peek(Token![,]) {
+                let _comma: Token![,] = content.parse()?;
+                return Err(Error::new(
+                    name.span(),
+                    "unexpected ',' in function body; do not add commas after definitions like \
+                     `input` or `output`",
+                ));
+            }
             // Decide which key we have.
             if content.peek(kw::input) {
                 // Parse: input: <value>
@@ -133,6 +151,15 @@ pub struct FieldAst {
 impl Parse for FieldAst {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
         let attrs: Vec<Attribute> = input.call(Attribute::parse_outer)?;
+        // Check for accidental visibility modifier.
+        if input.peek(Token![pub]) {
+            let _pub_kw: Token![pub] = input.parse()?;
+            return Err(Error::new(
+                Span::call_site(),
+                "visibility modifiers like `pub`, `pub(crate)`, or `pub(super)` are not allowed \
+                 on inline struct fields; all fields are public by default",
+            ));
+        }
         let name: Ident = input.parse()?;
         let _colon: Token![:] = input.parse()?;
         let ty_tokens = read_type_tokens_until_comma_or_end(input)?;
