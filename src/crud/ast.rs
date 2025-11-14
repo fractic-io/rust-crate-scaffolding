@@ -48,20 +48,22 @@ impl Parse for ConfigAst {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectKind {
     Root,
-    Child,
-    Batch,
+    OrderedChild,
+    UnorderedChild,
+    BatchChild,
 }
 
 impl ObjectKind {
     fn expected_list() -> &'static str {
-        "`root`, `child`, or `batch`"
+        "`root`, `ordered_child`, `unordered_child`, or `batch_child`"
     }
 
     fn from_str(s: &str) -> Option<Self> {
         match s {
             "root" => Some(Self::Root),
-            "child" => Some(Self::Child),
-            "batch" => Some(Self::Batch),
+            "ordered_child" => Some(Self::OrderedChild),
+            "unordered_child" => Some(Self::UnorderedChild),
+            "batch_child" => Some(Self::BatchChild),
             _ => None,
         }
     }
@@ -104,7 +106,8 @@ impl Parse for ObjectDef {
         let _brace_token = braced!(content in input);
 
         let mut parent: Option<Ident> = None;
-        let mut children: Option<Vec<Ident>> = None;
+        let mut ordered_children: Option<Vec<Ident>> = None;
+        let mut unordered_children: Option<Vec<Ident>> = None;
         let mut batch_children: Option<Vec<Ident>> = None;
 
         while !content.is_empty() {
@@ -118,11 +121,23 @@ impl Parse for ObjectDef {
                     let id: Ident = content.parse()?;
                     parent = Some(id);
                 }
-                "children" => {
-                    if children.is_some() {
-                        return Err(Error::new(key.span(), "duplicate `children` property"));
+                "ordered_children" => {
+                    if ordered_children.is_some() {
+                        return Err(Error::new(
+                            key.span(),
+                            "duplicate `ordered_children` property",
+                        ));
                     }
-                    children = Some(parse_ident_list(&content)?);
+                    ordered_children = Some(parse_ident_list(&content)?);
+                }
+                "unordered_children" => {
+                    if unordered_children.is_some() {
+                        return Err(Error::new(
+                            key.span(),
+                            "duplicate `unordered_children` property",
+                        ));
+                    }
+                    unordered_children = Some(parse_ident_list(&content)?);
                 }
                 "batch_children" => {
                     if batch_children.is_some() {
@@ -137,8 +152,8 @@ impl Parse for ObjectDef {
                     return Err(Error::new(
                         key.span(),
                         format!(
-                            "unknown property `{}`; expected one of: `parent`, `children`, \
-                             `batch_children`",
+                            "unknown property `{}`; expected one of: `parent`, \
+                             `ordered_children`, `unordered_children`, `batch_children`",
                             key
                         ),
                     ));
@@ -156,7 +171,8 @@ impl Parse for ObjectDef {
             name,
             props: ObjectPropsRaw {
                 parent,
-                children: children.unwrap_or_default(),
+                ordered_children: ordered_children.unwrap_or_default(),
+                unordered_children: unordered_children.unwrap_or_default(),
                 batch_children: batch_children.unwrap_or_default(),
             },
         })
@@ -166,7 +182,8 @@ impl Parse for ObjectDef {
 #[derive(Debug, Default)]
 pub struct ObjectPropsRaw {
     pub parent: Option<Ident>,
-    pub children: Vec<Ident>,
+    pub ordered_children: Vec<Ident>,
+    pub unordered_children: Vec<Ident>,
     pub batch_children: Vec<Ident>,
 }
 

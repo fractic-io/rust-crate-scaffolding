@@ -11,7 +11,9 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     let root_methods = model.roots.iter().map(|root| {
         let type_ident = &root.name;
         let method_ident = method_ident_for("manage", &root.name);
-        let has_children = !root.children.is_empty() || !root.batch_children.is_empty();
+        let has_children = !root.ordered_children.is_empty()
+            || !root.unordered_children.is_empty()
+            || !root.batch_children.is_empty();
         if has_children {
             quote! {
                 fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageRootWithChildren<#type_ident>;
@@ -23,19 +25,40 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         }
     });
 
-    // Methods for children.
-    let child_methods = model.children.iter().map(|child| {
+    // Methods for ordered children.
+    let ordered_child_methods = model.ordered_children.iter().map(|child| {
         let type_ident = &child.name;
         let parent_ident = &child.parent;
         let method_ident = method_ident_for("manage", &child.name);
-        let has_children = !child.children.is_empty() || !child.batch_children.is_empty();
+        let has_children = !child.ordered_children.is_empty()
+            || !child.unordered_children.is_empty()
+            || !child.batch_children.is_empty();
         if has_children {
             quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageChildWithChildren<#type_ident, Parent = #parent_ident>;
+                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren<#type_ident, Parent = #parent_ident>;
             }
         } else {
             quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageChild<#type_ident, Parent = #parent_ident>;
+                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageOrderedChild<#type_ident, Parent = #parent_ident>;
+            }
+        }
+    });
+
+    // Methods for unordered children.
+    let unordered_child_methods = model.unordered_children.iter().map(|child| {
+        let type_ident = &child.name;
+        let parent_ident = &child.parent;
+        let method_ident = method_ident_for("manage", &child.name);
+        let has_children = !child.ordered_children.is_empty()
+            || !child.unordered_children.is_empty()
+            || !child.batch_children.is_empty();
+        if has_children {
+            quote! {
+                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren<#type_ident, Parent = #parent_ident>;
+            }
+        } else {
+            quote! {
+                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild<#type_ident, Parent = #parent_ident>;
             }
         }
     });
@@ -53,7 +76,8 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     quote! {
         pub trait #repo_name: ::std::marker::Send + ::std::marker::Sync {
             #(#root_methods)*
-            #(#child_methods)*
+            #(#ordered_child_methods)*
+            #(#unordered_child_methods)*
             #(#batch_methods)*
         }
     }
