@@ -217,7 +217,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         }
     });
 
-    // Build trait + impl blocks for ordered child objects (non-batch).
+    // Build trait + impl blocks for ordered child objects.
     let child_items = model.ordered_children.iter().map(|c| (true, c)).chain(
         model.unordered_children.iter().map(|c| (false, c))
     ).map(|(is_ordered, child)| {
@@ -359,7 +359,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             )
         };
 
-        // Ordered children (non-batch) of this ordered child.
+        // Ordered children of this child.
         let (ordered_grandchild_methods, ordered_grandchild_impls) = child.ordered_children.iter().map(|grandchild| {
             let gc_ident = grandchild;
             let gc_data_ident = Ident::new(&format!("{}Data", gc_ident), gc_ident.span());
@@ -390,7 +390,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             )
         }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
-        // Unordered children (non-batch) of this ordered child.
+        // Unordered children of this child.
         let (unordered_grandchild_methods, unordered_grandchild_impls) = child.unordered_children.iter().map(|grandchild| {
             let gc_ident = grandchild;
             let gc_data_ident = Ident::new(&format!("{}Data", gc_ident), gc_ident.span());
@@ -421,7 +421,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             )
         }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
-        // Batch-children of this child.
+        // Batch children of this child.
         let (batch_methods, batch_impls) = child.batch_children.iter().map(|batch| {
             let b_ident = batch;
             let b_data_ident = Ident::new(&format!("{}Data", b_ident), b_ident.span());
