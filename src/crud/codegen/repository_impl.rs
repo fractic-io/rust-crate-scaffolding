@@ -223,36 +223,46 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         }
     });
 
+    let out = quote! {
+        pub struct #impl_struct_ident {
+            #(#root_fields,)*
+            #(#ordered_child_fields,)*
+            #(#unordered_child_fields,)*
+            #(#batch_fields,)*
+        }
+
+        impl #impl_struct_ident {
+            pub async fn new(ctx: __ctx!()) -> ::std::result::Result<Self, ::fractic_server_error::ServerError> {
+                let dynamo_util = ::std::sync::Arc::new(::fractic_aws_dynamo::util::DynamoUtil::new(ctx, ctx.$ctx_db_method()).await?);
+                let crud_algorithms = ::std::sync::Arc::new(<$crud_algorithms>::new(dynamo_util.clone()));
+                Ok(Self {
+                    #(#root_inits,)*
+                    #(#ordered_child_inits,)*
+                    #(#unordered_child_inits,)*
+                    #(#batch_inits,)*
+                })
+            }
+        }
+
+        impl #repo_name for #impl_struct_ident {
+            #(#root_trait_impls)*
+            #(#ordered_child_trait_impls)*
+            #(#unordered_child_trait_impls)*
+            #(#batch_trait_impls)*
+        }
+    };
+    let out_clone = out.clone();
+
     quote! {
         #[allow(unused_macros)]
         macro_rules! #macro_name_ident {
+            (dyn $ctx_view:path => $ctx_db_method:ident, $crud_algorithms:ty) => {
+                macro_rules! __ctx { () => { &dyn $ctx_view } }
+                #out
+            };
             ($ctx_view:path => $ctx_db_method:ident, $crud_algorithms:ty) => {
-                pub struct #impl_struct_ident {
-                    #(#root_fields,)*
-                    #(#ordered_child_fields,)*
-                    #(#unordered_child_fields,)*
-                    #(#batch_fields,)*
-                }
-
-                impl #impl_struct_ident {
-                    pub async fn new(ctx: &dyn $ctx_view) -> ::std::result::Result<Self, ::fractic_server_error::ServerError> {
-                        let dynamo_util = ::std::sync::Arc::new(::fractic_aws_dynamo::util::DynamoUtil::new(ctx, ctx.$ctx_db_method()).await?);
-                        let crud_algorithms = ::std::sync::Arc::new(<$crud_algorithms>::new(dynamo_util.clone()));
-                        Ok(Self {
-                            #(#root_inits,)*
-                            #(#ordered_child_inits,)*
-                            #(#unordered_child_inits,)*
-                            #(#batch_inits,)*
-                        })
-                    }
-                }
-
-                impl #repo_name for #impl_struct_ident {
-                    #(#root_trait_impls)*
-                    #(#ordered_child_trait_impls)*
-                    #(#unordered_child_trait_impls)*
-                    #(#batch_trait_impls)*
-                }
+                macro_rules! __ctx { () => { & $ctx } }
+                #out_clone
             };
         }
 
