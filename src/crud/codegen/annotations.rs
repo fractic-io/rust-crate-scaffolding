@@ -12,6 +12,28 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         repo_name.span(),
     );
 
+    // Collect multi-parent children/batches for dispatching to per-parent managers.
+    let multi_parent_children: ::std::collections::HashSet<String> = model
+        .ordered_children
+        .iter()
+        .filter(|c| c.parents.len() > 1)
+        .map(|c| c.name.to_string())
+        .chain(
+            model
+                .unordered_children
+                .iter()
+                .filter(|c| c.parents.len() > 1)
+                .map(|c| c.name.to_string()),
+        )
+        .chain(
+            model
+                .batches
+                .iter()
+                .filter(|b| b.parents.len() > 1)
+                .map(|b| b.name.to_string()),
+        )
+        .collect();
+
     // Build trait + impl blocks for root objects.
     let root_items: ::std::vec::Vec<TokenStream> = model.roots.iter().map(|root| {
         let ty_ident = &root.name;
@@ -109,7 +131,11 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let (ordered_child_methods, ordered_child_impls) = root.ordered_children.iter().map(|child_name| {
             let child_ident = child_name;
             let child_data_ident = Ident::new(&format!("{}Data", child_ident), child_ident.span());
-            let child_manager_ident = method_ident_for("manage", child_ident);
+            let child_manager_ident = if multi_parent_children.contains(&child_ident.to_string()) {
+                method_ident_for_parented("manage", child_ident, ty_ident)
+            } else {
+                method_ident_for("manage", child_ident)
+            };
             let base_pascal = stripped_pascal(ty_ident, child_ident);
             let child_singular_snake = to_snake_case(&base_pascal);
             let child_plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
@@ -140,7 +166,11 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let (unordered_child_methods, unordered_child_impls) = root.unordered_children.iter().map(|child_name| {
             let child_ident = child_name;
             let child_data_ident = Ident::new(&format!("{}Data", child_ident), child_ident.span());
-            let child_manager_ident = method_ident_for("manage", child_ident);
+            let child_manager_ident = if multi_parent_children.contains(&child_ident.to_string()) {
+                method_ident_for_parented("manage", child_ident, ty_ident)
+            } else {
+                method_ident_for("manage", child_ident)
+            };
             let base_pascal = stripped_pascal(ty_ident, child_ident);
             let child_singular_snake = to_snake_case(&base_pascal);
             let child_plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
@@ -171,7 +201,11 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let (batch_methods, batch_impls) = root.batch_children.iter().map(|batch_name| {
             let batch_ident = batch_name;
             let batch_data_ident = Ident::new(&format!("{}Data", batch_ident), batch_ident.span());
-            let batch_manager_ident = method_ident_for("manage", batch_ident);
+            let batch_manager_ident = if multi_parent_children.contains(&batch_ident.to_string()) {
+                method_ident_for_parented("manage", batch_ident, ty_ident)
+            } else {
+                method_ident_for("manage", batch_ident)
+            };
             let base_pascal = stripped_pascal(ty_ident, batch_ident);
             let plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
             let list_fn = Ident::new(&format!("list_{}", plural_snake), batch_ident.span());
@@ -223,17 +257,13 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     ).map(|(is_ordered, child)| {
         let ty_ident = &child.name;
         let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
-        let parent_single = child.parents.len() == 1;
-        let effective_parent_ident = if parent_single {
-            child.parents[0].clone()
-        } else {
-            // For unchecked helpers (which construct a dummy parent), pick a stable
-            // representative parent type. This is only used for the unchecked helpers;
-            // checked methods call through with `&self` and use the dyn parent trait.
-            child.parents[0].clone()
-        };
+        let effective_parent_ident = child.parents[0].clone();
         let parent_data_ident = Ident::new(&format!("{}Data", effective_parent_ident), effective_parent_ident.span());
-        let manager_ident = method_ident_for("manage", &child.name);
+        let manager_ident = if multi_parent_children.contains(&child.name.to_string()) {
+            method_ident_for_parented("manage", &child.name, ty_ident)
+        } else {
+            method_ident_for("manage", &child.name)
+        };
         let has_children = !child.ordered_children.is_empty()
             || !child.unordered_children.is_empty()
             || !child.batch_children.is_empty();
@@ -371,7 +401,11 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let (ordered_grandchild_methods, ordered_grandchild_impls) = child.ordered_children.iter().map(|grandchild| {
             let gc_ident = grandchild;
             let gc_data_ident = Ident::new(&format!("{}Data", gc_ident), gc_ident.span());
-            let gc_manager_ident = method_ident_for("manage", gc_ident);
+            let gc_manager_ident = if multi_parent_children.contains(&gc_ident.to_string()) {
+                method_ident_for_parented("manage", gc_ident, ty_ident)
+            } else {
+                method_ident_for("manage", gc_ident)
+            };
             let base_pascal = stripped_pascal(ty_ident, gc_ident);
             let singular_snake = to_snake_case(&base_pascal);
             let plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
@@ -402,7 +436,11 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let (unordered_grandchild_methods, unordered_grandchild_impls) = child.unordered_children.iter().map(|grandchild| {
             let gc_ident = grandchild;
             let gc_data_ident = Ident::new(&format!("{}Data", gc_ident), gc_ident.span());
-            let gc_manager_ident = method_ident_for("manage", gc_ident);
+            let gc_manager_ident = if multi_parent_children.contains(&gc_ident.to_string()) {
+                method_ident_for_parented("manage", gc_ident, ty_ident)
+            } else {
+                method_ident_for("manage", gc_ident)
+            };
             let base_pascal = stripped_pascal(ty_ident, gc_ident);
             let singular_snake = to_snake_case(&base_pascal);
             let plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
@@ -433,7 +471,11 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let (batch_methods, batch_impls) = child.batch_children.iter().map(|batch| {
             let b_ident = batch;
             let b_data_ident = Ident::new(&format!("{}Data", b_ident), b_ident.span());
-            let b_manager_ident = method_ident_for("manage", b_ident);
+            let b_manager_ident = if multi_parent_children.contains(&b_ident.to_string()) {
+                method_ident_for_parented("manage", b_ident, ty_ident)
+            } else {
+                method_ident_for("manage", b_ident)
+            };
             let base_pascal = stripped_pascal(ty_ident, b_ident);
             let plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
             let list_fn = Ident::new(&format!("list_{}", plural_snake), b_ident.span());
@@ -520,6 +562,13 @@ fn method_ident_for(prefix: &str, ident: &Ident) -> Ident {
     let snake = to_snake_case(&ident.to_string());
     let name = format!("{}_{}", prefix, snake);
     Ident::new(&name, ident.span())
+}
+
+fn method_ident_for_parented(prefix: &str, child: &Ident, parent: &Ident) -> Ident {
+    let child_snake = to_snake_case(&child.to_string());
+    let parent_snake = to_snake_case(&parent.to_string());
+    let name = format!("{}_{}_for_{}", prefix, child_snake, parent_snake);
+    Ident::new(&name, child.span())
 }
 
 fn stripped_pascal(parent: &Ident, child: &Ident) -> String {
