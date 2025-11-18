@@ -223,8 +223,16 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     ).map(|(is_ordered, child)| {
         let ty_ident = &child.name;
         let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
-        let parent_ident = &child.parent;
-        let parent_data_ident = Ident::new(&format!("{}Data", parent_ident), parent_ident.span());
+        let parent_single = child.parents.len() == 1;
+        let effective_parent_ident = if parent_single {
+            child.parents[0].clone()
+        } else {
+            // For unchecked helpers (which construct a dummy parent), pick a stable
+            // representative parent type. This is only used for the unchecked helpers;
+            // checked methods call through with `&self` and use the dyn parent trait.
+            child.parents[0].clone()
+        };
+        let parent_data_ident = Ident::new(&format!("{}Data", effective_parent_ident), effective_parent_ident.span());
         let manager_ident = method_ident_for("manage", &child.name);
         let has_children = !child.ordered_children.is_empty()
             || !child.unordered_children.is_empty()
@@ -298,7 +306,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 },
                 quote! {
                     async fn unchecked_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
-                        let tmp_dummy = #parent_ident {
+                        let tmp_dummy = #effective_parent_ident {
                             id: parent_id,
                             data: #parent_data_ident::default(),
                             auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
@@ -306,7 +314,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         ctx.$ctx_repo_accessor().await?.#manager_ident().add(&tmp_dummy, data, after).await
                     }
                     async fn unchecked_batch_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
-                        let tmp_dummy = #parent_ident {
+                        let tmp_dummy = #effective_parent_ident {
                             id: parent_id,
                             data: #parent_data_ident::default(),
                             auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
@@ -314,7 +322,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         ctx.$ctx_repo_accessor().await?.#manager_ident().batch_add(&tmp_dummy, data, after).await
                     }
                     async fn unchecked_list(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
-                        let tmp_dummy = #parent_ident {
+                        let tmp_dummy = #effective_parent_ident {
                             id: parent_id,
                             data: #parent_data_ident::default(),
                             auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
@@ -332,7 +340,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 },
                 quote! {
                     async fn unchecked_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
-                        let tmp_dummy = #parent_ident {
+                        let tmp_dummy = #effective_parent_ident {
                             id: parent_id,
                             data: #parent_data_ident::default(),
                             auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
@@ -340,7 +348,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         ctx.$ctx_repo_accessor().await?.#manager_ident().add(&tmp_dummy, data).await
                     }
                     async fn unchecked_batch_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
-                        let tmp_dummy = #parent_ident {
+                        let tmp_dummy = #effective_parent_ident {
                             id: parent_id,
                             data: #parent_data_ident::default(),
                             auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
@@ -348,7 +356,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         ctx.$ctx_repo_accessor().await?.#manager_ident().batch_add(&tmp_dummy, data).await
                     }
                     async fn unchecked_list(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
-                        let tmp_dummy = #parent_ident {
+                        let tmp_dummy = #effective_parent_ident {
                             id: parent_id,
                             data: #parent_data_ident::default(),
                             auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),

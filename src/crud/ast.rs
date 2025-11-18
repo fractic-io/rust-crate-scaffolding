@@ -105,7 +105,7 @@ impl Parse for ObjectDef {
         let content;
         let _brace_token = braced!(content in input);
 
-        let mut parent: Option<Ident> = None;
+        let mut parent: Option<Vec<Ident>> = None;
         let mut ordered_children: Option<Vec<Ident>> = None;
         let mut unordered_children: Option<Vec<Ident>> = None;
         let mut batch_children: Option<Vec<Ident>> = None;
@@ -118,8 +118,7 @@ impl Parse for ObjectDef {
                     if parent.is_some() {
                         return Err(Error::new(key.span(), "duplicate `parent` property"));
                     }
-                    let id: Ident = content.parse()?;
-                    parent = Some(id);
+                    parent = Some(parse_ident_list(&content)?);
                 }
                 "ordered_children" => {
                     if ordered_children.is_some() {
@@ -181,7 +180,7 @@ impl Parse for ObjectDef {
 
 #[derive(Debug, Default)]
 pub struct ObjectPropsRaw {
-    pub parent: Option<Ident>,
+    pub parent: Option<Vec<Ident>>,
     pub ordered_children: Vec<Ident>,
     pub unordered_children: Vec<Ident>,
     pub batch_children: Vec<Ident>,

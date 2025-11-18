@@ -22,7 +22,7 @@ pub struct RootDef {
 #[derive(Debug)]
 pub struct ChildDef {
     pub name: Ident,
-    pub parent: Ident,
+    pub parents: Vec<Ident>,
     pub ordered_children: Vec<Ident>,
     pub unordered_children: Vec<Ident>,
     pub batch_children: Vec<Ident>,
@@ -31,7 +31,7 @@ pub struct ChildDef {
 #[derive(Debug)]
 pub struct BatchDef {
     pub name: Ident,
-    pub parent: Ident,
+    pub parents: Vec<Ident>,
 }
 
 impl TryFrom<ast::ConfigAst> for ConfigModel {
@@ -60,33 +60,45 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                     });
                 }
                 ast::ObjectKind::OrderedChild => {
-                    let parent = obj.props.parent.ok_or_else(|| {
-                        Error::new(obj.name.span(), "`ordered_child` requires a `parent`")
-                    })?;
+                    let parents = obj
+                        .props
+                        .parent
+                        .ok_or_else(|| Error::new(obj.name.span(), "`ordered_child` requires a `parent`"))?;
+                    if parents.is_empty() {
+                        return Err(Error::new(obj.name.span(), "`ordered_child` requires at least one `parent`"));
+                    }
                     ordered_children.push(ChildDef {
                         name: obj.name,
-                        parent,
+                        parents,
                         ordered_children: obj.props.ordered_children,
                         unordered_children: obj.props.unordered_children,
                         batch_children: obj.props.batch_children,
                     });
                 }
                 ast::ObjectKind::UnorderedChild => {
-                    let parent = obj.props.parent.ok_or_else(|| {
-                        Error::new(obj.name.span(), "`unordered_child` requires a `parent`")
-                    })?;
+                    let parents = obj
+                        .props
+                        .parent
+                        .ok_or_else(|| Error::new(obj.name.span(), "`unordered_child` requires a `parent`"))?;
+                    if parents.is_empty() {
+                        return Err(Error::new(obj.name.span(), "`unordered_child` requires at least one `parent`"));
+                    }
                     unordered_children.push(ChildDef {
                         name: obj.name,
-                        parent,
+                        parents,
                         ordered_children: obj.props.ordered_children,
                         unordered_children: obj.props.unordered_children,
                         batch_children: obj.props.batch_children,
                     });
                 }
                 ast::ObjectKind::BatchChild => {
-                    let parent = obj.props.parent.ok_or_else(|| {
-                        Error::new(obj.name.span(), "`batch_child` requires a `parent`")
-                    })?;
+                    let parents = obj
+                        .props
+                        .parent
+                        .ok_or_else(|| Error::new(obj.name.span(), "`batch_child` requires a `parent`"))?;
+                    if parents.is_empty() {
+                        return Err(Error::new(obj.name.span(), "`batch_child` requires at least one `parent`"));
+                    }
                     // Disallow any children on batches
                     if !obj.props.ordered_children.is_empty()
                         || !obj.props.unordered_children.is_empty()
@@ -100,7 +112,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                     }
                     batches.push(BatchDef {
                         name: obj.name,
-                        parent,
+                        parents,
                     });
                 }
             }
