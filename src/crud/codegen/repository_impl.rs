@@ -60,44 +60,40 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let field_ident = method_ident_for("manage", &child.name);
         let method_ident = field_ident.clone();
         let ty_ident = &child.name;
-        if child.parents.len() == 1 {
-            if child.has_children() {
-                (
-                    quote! {
-                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren<#ty_ident>
-                    },
-                    quote! {
-                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren::new(
-                            dynamo_util.clone(),
-                            crud_algorithms.clone(),
-                        )
-                    },
-                    quote! {
-                        fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren<#ty_ident> {
-                            &self.#method_ident
-                        }
+        if child.has_children() {
+            (
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren<#ty_ident>
+                },
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                },
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren<#ty_ident> {
+                        &self.#method_ident
                     }
-                )
-            } else {
-                (
-                    quote! {
-                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChild<#ty_ident>
-                    },
-                    quote! {
-                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChild::new(
-                            dynamo_util.clone(),
-                            crud_algorithms.clone(),
-                        )
-                    },
-                    quote! {
-                        fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageOrderedChild<#ty_ident> {
-                            &self.#method_ident
-                        }
-                    }
-                )
-            }
+                }
+            )
         } else {
-            todo!()
+            (
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChild<#ty_ident>
+                },
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChild::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                },
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageOrderedChild<#ty_ident> {
+                        &self.#method_ident
+                    }
+                }
+            )
         }
     }).collect::<(Vec<_>, Vec<_>, Vec<_>)>();
 
@@ -106,44 +102,40 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let field_ident = method_ident_for("manage", &child.name);
         let method_ident = field_ident.clone();
         let ty_ident = &child.name;
-        if child.parents.len() == 1 {
-            if child.has_children() {
-                (
-                    quote! {
-                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren<#ty_ident>
-                    },
-                    quote! {
-                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren::new(
-                            dynamo_util.clone(),
-                            crud_algorithms.clone(),
-                        )
-                    },
-                    quote! {
-                        fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren<#ty_ident> {
-                            &self.#method_ident
-                        }
+        if child.has_children() {
+            (
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren<#ty_ident>
+                },
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                },
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren<#ty_ident> {
+                        &self.#method_ident
                     }
-                )
-            } else {
-                (
-                    quote! {
-                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild<#ty_ident>
-                    },
-                    quote! {
-                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild::new(
-                            dynamo_util.clone(),
-                            crud_algorithms.clone(),
-                        )
-                    },
-                    quote! {
-                        fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild<#ty_ident> {
-                            &self.#method_ident
-                        }
-                    }
-                )
-            }
+                }
+            )
         } else {
-            todo!()
+            (
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild<#ty_ident>
+                },
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                },
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild<#ty_ident> {
+                        &self.#method_ident
+                    }
+                }
+            )
         }
     }).collect::<(Vec<_>, Vec<_>, Vec<_>)>();
 
@@ -152,26 +144,22 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let field_ident = method_ident_for("manage", &batch.name);
         let method_ident = field_ident.clone();
         let ty_ident = &batch.name;
-        if batch.parents.len() == 1 {
-            (
-                quote! {
-                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageBatchChild<#ty_ident>
-                },
-                quote! {
-                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageBatchChild::new(
-                        dynamo_util.clone(),
-                        crud_algorithms.clone(),
-                    )
-                },
-                quote! {
-                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageBatchChild<#ty_ident> {
-                        &self.#method_ident
-                    }
+        (
+            quote! {
+                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageBatchChild<#ty_ident>
+            },
+            quote! {
+                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageBatchChild::new(
+                    dynamo_util.clone(),
+                    crud_algorithms.clone(),
+                )
+            },
+            quote! {
+                fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageBatchChild<#ty_ident> {
+                    &self.#method_ident
                 }
-            )
-        } else {
-            todo!()
-        }
+            }
+        )
     }).collect::<(Vec<_>, Vec<_>, Vec<_>)>();
 
     let out = quote! {
