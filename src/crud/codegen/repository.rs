@@ -8,77 +8,99 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     let repo_name = &model.repository_name;
 
     // Methods for roots.
-    let root_methods = model.roots.iter().map(|root| {
+    let root_manage_methods = model.roots.iter().map(|root| {
         let type_ident = &root.name;
         let method_ident = method_ident_for("manage", &root.name);
-        let has_children = !root.ordered_children.is_empty()
-            || !root.unordered_children.is_empty()
-            || !root.batch_children.is_empty();
-        if has_children {
+        if root.has_children() {
             quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageRootWithChildren<#type_ident>;
+                fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageRootWithChildren<#type_ident>;
             }
         } else {
             quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageRoot<#type_ident>;
+                fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageRoot<#type_ident>;
             }
         }
     });
 
     // Methods for ordered children.
-    let ordered_child_methods = model.ordered_children.iter().map(|child| {
+    let (ordered_parent_of_impls, ordered_manage_methods) = model.ordered_children.iter().map(|child| {
         let type_ident = &child.name;
-        let parent_ident = &child.parent;
         let method_ident = method_ident_for("manage", &child.name);
-        let has_children = !child.ordered_children.is_empty()
-            || !child.unordered_children.is_empty()
-            || !child.batch_children.is_empty();
-        if has_children {
+        let parent_of_impls = child.parents.iter().map(|parent_ident| {
             quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren<#type_ident, Parent = #parent_ident>;
+                impl ::fractic_aws_dynamo::ext::crud::ParentOf<#type_ident> for #parent_ident { }
             }
-        } else {
+        });
+        (
             quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageOrderedChild<#type_ident, Parent = #parent_ident>;
+                #(#parent_of_impls)*
+            },
+            if child.has_children() {
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren<#type_ident>;
+                }
+            } else {
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageOrderedChild<#type_ident>;
+                }
             }
-        }
-    });
+        )
+    }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
     // Methods for unordered children.
-    let unordered_child_methods = model.unordered_children.iter().map(|child| {
+    let (unordered_parent_of_impls, unordered_manage_methods) = model.unordered_children.iter().map(|child| {
         let type_ident = &child.name;
-        let parent_ident = &child.parent;
         let method_ident = method_ident_for("manage", &child.name);
-        let has_children = !child.ordered_children.is_empty()
-            || !child.unordered_children.is_empty()
-            || !child.batch_children.is_empty();
-        if has_children {
+        let parent_of_impls = child.parents.iter().map(|parent_ident| {
             quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren<#type_ident, Parent = #parent_ident>;
+                impl ::fractic_aws_dynamo::ext::crud::ParentOf<#type_ident> for #parent_ident { }
             }
-        } else {
+        });
+        (
             quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild<#type_ident, Parent = #parent_ident>;
+                #(#parent_of_impls)*
+            },
+            if child.has_children() {
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren<#type_ident>;
+                }
+            } else {
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild<#type_ident>;
+                }
             }
-        }
-    });
+        )
+    }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
     // Methods for batch children.
-    let batch_methods = model.batches.iter().map(|batch| {
-        let type_ident = &batch.name;
-        let parent_ident = &batch.parent;
-        let method_ident = method_ident_for("manage", &batch.name);
-        quote! {
-            fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageBatchChild<#type_ident, Parent = #parent_ident>;
-        }
-    });
+    let (batch_parent_of_impls, batch_manage_methods) = model.batches.iter().map(|child| {
+        let type_ident = &child.name;
+        let method_ident = method_ident_for("manage", &child.name);
+        let parent_of_impls = child.parents.iter().map(|parent_ident| {
+            quote! {
+                impl ::fractic_aws_dynamo::ext::crud::ParentOf<#type_ident> for #parent_ident { }
+            }
+        });
+        (
+            quote! {
+                #(#parent_of_impls)*
+            },
+            quote! {
+                fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageBatchChild<#type_ident>;
+            }
+        )
+    }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
     quote! {
+        #(#ordered_parent_of_impls)*
+        #(#unordered_parent_of_impls)*
+        #(#batch_parent_of_impls)*
+
         pub trait #repo_name: ::std::marker::Send + ::std::marker::Sync {
-            #(#root_methods)*
-            #(#ordered_child_methods)*
-            #(#unordered_child_methods)*
-            #(#batch_methods)*
+            #(#root_manage_methods)*
+            #(#ordered_manage_methods)*
+            #(#unordered_manage_methods)*
+            #(#batch_manage_methods)*
         }
     }
 }

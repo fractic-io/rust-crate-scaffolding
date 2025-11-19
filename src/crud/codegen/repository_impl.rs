@@ -14,214 +14,153 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     let impl_struct_ident = Ident::new(&format!("{}Impl", repo_name), repo_name.span());
 
     // Fields and initializers for roots.
-    let root_fields = model.roots.iter().map(|root| {
+    let (root_fields, root_inits, root_trait_impls) = model.roots.iter().map(|root| {
         let field_ident = method_ident_for("manage", &root.name);
+        let method_ident = field_ident.clone();
         let ty_ident = &root.name;
-        let has_children = !root.ordered_children.is_empty()
-            || !root.unordered_children.is_empty()
-            || !root.batch_children.is_empty();
-        if has_children {
-            quote! {
-                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageRootWithChildrenImpl<#ty_ident>
-            }
-        } else {
-            quote! {
-                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageRootImpl<#ty_ident>
-            }
-        }
-    });
-    let root_inits = model.roots.iter().map(|root| {
-        let field_ident = method_ident_for("manage", &root.name);
-        let has_children = !root.ordered_children.is_empty()
-            || !root.unordered_children.is_empty()
-            || !root.batch_children.is_empty();
-        if has_children {
-            quote! {
-                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageRootWithChildrenImpl::new(
-                    dynamo_util.clone(),
-                    crud_algorithms.clone(),
-                )
-            }
-        } else {
-            quote! {
-                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageRootImpl::new(
-                    dynamo_util.clone(),
-                    crud_algorithms.clone(),
-                )
-            }
-        }
-    });
-    let root_trait_impls = model.roots.iter().map(|root| {
-        let method_ident = method_ident_for("manage", &root.name);
-        let ty_ident = &root.name;
-        let has_children = !root.ordered_children.is_empty()
-            || !root.unordered_children.is_empty()
-            || !root.batch_children.is_empty();
-        if has_children {
-            quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageRootWithChildren<#ty_ident> {
-                    &self.#method_ident
+        if root.has_children() {
+            (
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageRootWithChildren<#ty_ident>
+                },
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageRootWithChildren::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                },
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageRootWithChildren<#ty_ident> {
+                        &self.#method_ident
+                    }
                 }
-            }
+            )
         } else {
-            quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageRoot<#ty_ident> {
-                    &self.#method_ident
+            (
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageRoot<#ty_ident>
+                },
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageRoot::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                },
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageRoot<#ty_ident> {
+                        &self.#method_ident
+                    }
                 }
-            }
-        }
-    });
-
-    // Fields, inits, trait impls for ordered children.
-    let ordered_child_fields = model.ordered_children.iter().map(|child| {
-        let field_ident = method_ident_for("manage", &child.name);
-        let ty_ident = &child.name;
-        let parent_ident = &child.parent;
-        let has_children = !child.ordered_children.is_empty()
-            || !child.unordered_children.is_empty()
-            || !child.batch_children.is_empty();
-        if has_children {
-            quote! {
-                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildrenImpl<#ty_ident, #parent_ident>
-            }
-        } else {
-            quote! {
-                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildImpl<#ty_ident, #parent_ident>
-            }
-        }
-    });
-    let ordered_child_inits = model.ordered_children.iter().map(|child| {
-        let field_ident = method_ident_for("manage", &child.name);
-        let has_children = !child.ordered_children.is_empty()
-            || !child.unordered_children.is_empty()
-            || !child.batch_children.is_empty();
-        if has_children {
-            quote! {
-                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildrenImpl::new(
-                    dynamo_util.clone(),
-                    crud_algorithms.clone(),
-                )
-            }
-        } else {
-            quote! {
-                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildImpl::new(
-                    dynamo_util.clone(),
-                    crud_algorithms.clone(),
-                )
-            }
-        }
-    });
-    let ordered_child_trait_impls = model.ordered_children.iter().map(|child| {
-        let method_ident = method_ident_for("manage", &child.name);
-        let ty_ident = &child.name;
-        let parent_ident = &child.parent;
-        let has_children = !child.ordered_children.is_empty()
-            || !child.unordered_children.is_empty()
-            || !child.batch_children.is_empty();
-        if has_children {
-            quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren<#ty_ident, Parent = #parent_ident> {
-                    &self.#method_ident
-                }
-            }
-        } else {
-            quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageOrderedChild<#ty_ident, Parent = #parent_ident> {
-                    &self.#method_ident
-                }
-            }
-        }
-    });
-
-    // Fields, inits, trait impls for unordered children.
-    let unordered_child_fields = model.unordered_children.iter().map(|child| {
-        let field_ident = method_ident_for("manage", &child.name);
-        let ty_ident = &child.name;
-        let parent_ident = &child.parent;
-        let has_children = !child.ordered_children.is_empty()
-            || !child.unordered_children.is_empty()
-            || !child.batch_children.is_empty();
-        if has_children {
-            quote! {
-                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildrenImpl<#ty_ident, #parent_ident>
-            }
-        } else {
-            quote! {
-                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildImpl<#ty_ident, #parent_ident>
-            }
-        }
-    });
-    let unordered_child_inits = model.unordered_children.iter().map(|child| {
-        let field_ident = method_ident_for("manage", &child.name);
-        let has_children = !child.ordered_children.is_empty()
-            || !child.unordered_children.is_empty()
-            || !child.batch_children.is_empty();
-        if has_children {
-            quote! {
-                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildrenImpl::new(
-                    dynamo_util.clone(),
-                    crud_algorithms.clone(),
-                )
-            }
-        } else {
-            quote! {
-                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildImpl::new(
-                    dynamo_util.clone(),
-                    crud_algorithms.clone(),
-                )
-            }
-        }
-    });
-    let unordered_child_trait_impls = model.unordered_children.iter().map(|child| {
-        let method_ident = method_ident_for("manage", &child.name);
-        let ty_ident = &child.name;
-        let parent_ident = &child.parent;
-        let has_children = !child.ordered_children.is_empty()
-            || !child.unordered_children.is_empty()
-            || !child.batch_children.is_empty();
-        if has_children {
-            quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren<#ty_ident, Parent = #parent_ident> {
-                    &self.#method_ident
-                }
-            }
-        } else {
-            quote! {
-                fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild<#ty_ident, Parent = #parent_ident> {
-                    &self.#method_ident
-                }
-            }
-        }
-    });
-
-    // Fields, inits, trait impls for batch children.
-    let batch_fields = model.batches.iter().map(|batch| {
-        let field_ident = method_ident_for("manage", &batch.name);
-        let ty_ident = &batch.name;
-        let parent_ident = &batch.parent;
-        quote! {
-            #field_ident: ::fractic_aws_dynamo::ext::crud::ManageBatchChildImpl<#ty_ident, #parent_ident>
-        }
-    });
-    let batch_inits = model.batches.iter().map(|batch| {
-        let field_ident = method_ident_for("manage", &batch.name);
-        quote! {
-            #field_ident: ::fractic_aws_dynamo::ext::crud::ManageBatchChildImpl::new(
-                dynamo_util.clone(),
-                crud_algorithms.clone(),
             )
         }
-    });
-    let batch_trait_impls = model.batches.iter().map(|batch| {
-        let method_ident = method_ident_for("manage", &batch.name);
-        let ty_ident = &batch.name;
-        let parent_ident = &batch.parent;
-        quote! {
-            fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageBatchChild<#ty_ident, Parent = #parent_ident> {
-                &self.#method_ident
-            }
+    }).collect::<(Vec<_>, Vec<_>, Vec<_>)>();
+
+    // Fields, inits, trait impls for ordered children.
+    let (ordered_child_fields, ordered_child_inits, ordered_child_trait_impls) = model.ordered_children.iter().map(|child| {
+        let field_ident = method_ident_for("manage", &child.name);
+        let method_ident = field_ident.clone();
+        let ty_ident = &child.name;
+        if child.has_children() {
+            (
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren<#ty_ident>
+                },
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                },
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren<#ty_ident> {
+                        &self.#method_ident
+                    }
+                }
+            )
+        } else {
+            (
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChild<#ty_ident>
+                },
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChild::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                },
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageOrderedChild<#ty_ident> {
+                        &self.#method_ident
+                    }
+                }
+            )
         }
-    });
+    }).collect::<(Vec<_>, Vec<_>, Vec<_>)>();
+
+    // Fields, inits, trait impls for unordered children.
+    let (unordered_child_fields, unordered_child_inits, unordered_child_trait_impls) = model.unordered_children.iter().map(|child| {
+        let field_ident = method_ident_for("manage", &child.name);
+        let method_ident = field_ident.clone();
+        let ty_ident = &child.name;
+        if child.has_children() {
+            (
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren<#ty_ident>
+                },
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                },
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren<#ty_ident> {
+                        &self.#method_ident
+                    }
+                }
+            )
+        } else {
+            (
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild<#ty_ident>
+                },
+                quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                },
+                quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild<#ty_ident> {
+                        &self.#method_ident
+                    }
+                }
+            )
+        }
+    }).collect::<(Vec<_>, Vec<_>, Vec<_>)>();
+
+    // Fields, inits, trait impls for batch children.
+    let (batch_fields, batch_inits, batch_trait_impls) = model.batches.iter().map(|batch| {
+        let field_ident = method_ident_for("manage", &batch.name);
+        let method_ident = field_ident.clone();
+        let ty_ident = &batch.name;
+        (
+            quote! {
+                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageBatchChild<#ty_ident>
+            },
+            quote! {
+                #field_ident: ::fractic_aws_dynamo::ext::crud::ManageBatchChild::new(
+                    dynamo_util.clone(),
+                    crud_algorithms.clone(),
+                )
+            },
+            quote! {
+                fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageBatchChild<#ty_ident> {
+                    &self.#method_ident
+                }
+            }
+        )
+    }).collect::<(Vec<_>, Vec<_>, Vec<_>)>();
 
     let out = quote! {
         pub struct #impl_struct_ident {
