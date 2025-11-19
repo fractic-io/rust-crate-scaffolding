@@ -11,10 +11,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     let root_manage_methods = model.roots.iter().map(|root| {
         let type_ident = &root.name;
         let method_ident = method_ident_for("manage", &root.name);
-        let has_children = !root.ordered_children.is_empty()
-            || !root.unordered_children.is_empty()
-            || !root.batch_children.is_empty();
-        if has_children {
+        if root.has_children() {
             quote! {
                 fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageRootWithChildren<#type_ident>;
             }

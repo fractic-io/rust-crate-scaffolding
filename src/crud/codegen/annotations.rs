@@ -17,9 +17,6 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let ty_ident = &root.name;
         let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
         let manager_ident = method_ident_for("manage", &root.name);
-        let has_children = !root.ordered_children.is_empty()
-            || !root.unordered_children.is_empty()
-            || !root.batch_children.is_empty();
 
         let (basic_methods, basic_impls) = {
             (
@@ -47,7 +44,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         };
 
         // `delete` methods based on whether the type has children.
-        let (delete_methods, delete_impls) = if has_children {
+        let (delete_methods, delete_impls) = if root.has_children() {
             (
                 quote! {
                     async fn delete_recursive(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
@@ -232,9 +229,6 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             (p, d)
         };
         let manager_ident = method_ident_for("manage", &child.name);
-        let has_children = !child.ordered_children.is_empty()
-            || !child.unordered_children.is_empty()
-            || !child.batch_children.is_empty();
 
         let (basic_methods, basic_impls) = {
             (
@@ -254,7 +248,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         };
 
         // `delete` methods based on whether the child has children of its own.
-        let (delete_methods, delete_impls) = if has_children {
+        let (delete_methods, delete_impls) = if child.has_children() {
             (
                 quote! {
                     async fn delete_recursive(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
