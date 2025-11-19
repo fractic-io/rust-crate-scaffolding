@@ -133,3 +133,19 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
         })
     }
 }
+
+impl RootDef {
+    pub fn has_children(&self) -> bool {
+        !self.ordered_children.is_empty()
+            || !self.unordered_children.is_empty()
+            || !self.batch_children.is_empty()
+    }
+}
+
+impl ChildDef {
+    pub fn has_children(&self) -> bool {
+        !self.ordered_children.is_empty()
+            || !self.unordered_children.is_empty()
+            || !self.batch_children.is_empty()
+    }
+}
