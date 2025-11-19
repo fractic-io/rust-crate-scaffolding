@@ -223,8 +223,14 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     ).map(|(is_ordered, child)| {
         let ty_ident = &child.name;
         let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
-        let parent_ident = &child.parent;
-        let parent_data_ident = Ident::new(&format!("{}Data", parent_ident), parent_ident.span());
+        let (parent_ident, parent_data_ident) = {
+            // These idents are used only to create dummy objects for unchecked
+            // methods. Since the dummy object is only needed to satisfy the
+            // type system, we can use any valid parent type.
+            let p = &child.parents[0];
+            let d = Ident::new(&format!("{}Data", p), p.span());
+            (p, d)
+        };
         let manager_ident = method_ident_for("manage", &child.name);
         let has_children = !child.ordered_children.is_empty()
             || !child.unordered_children.is_empty()
