@@ -61,11 +61,10 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let method_ident = field_ident.clone();
         let ty_ident = &child.name;
         if child.parents.len() == 1 {
-            let parent_ident = &child.parents[0];
             if child.has_children() {
                 (
                     quote! {
-                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildrenImpl<#ty_ident, #parent_ident>
+                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildrenImpl<#ty_ident>
                     },
                     quote! {
                         #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildrenImpl::new(
@@ -74,7 +73,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         )
                     },
                     quote! {
-                        fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren<#ty_ident, Parent = #parent_ident> {
+                        fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageOrderedChildWithChildren<#ty_ident> {
                             &self.#method_ident
                         }
                     }
@@ -82,7 +81,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             } else {
                 (
                     quote! {
-                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildImpl<#ty_ident, #parent_ident>
+                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildImpl<#ty_ident>
                     },
                     quote! {
                         #field_ident: ::fractic_aws_dynamo::ext::crud::ManageOrderedChildImpl::new(
@@ -91,7 +90,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         )
                     },
                     quote! {
-                        fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageOrderedChild<#ty_ident, Parent = #parent_ident> {
+                        fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageOrderedChild<#ty_ident> {
                             &self.#method_ident
                         }
                     }
@@ -108,11 +107,10 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let method_ident = field_ident.clone();
         let ty_ident = &child.name;
         if child.parents.len() == 1 {
-            let parent_ident = &child.parents[0];
             if child.has_children() {
                 (
                     quote! {
-                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildrenImpl<#ty_ident, #parent_ident>
+                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildrenImpl<#ty_ident>
                     },
                     quote! {
                         #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildrenImpl::new(
@@ -121,7 +119,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         )
                     },
                     quote! {
-                        fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren<#ty_ident, Parent = #parent_ident> {
+                        fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren<#ty_ident> {
                             &self.#method_ident
                         }
                     }
@@ -129,7 +127,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             } else {
                 (
                     quote! {
-                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildImpl<#ty_ident, #parent_ident>
+                        #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildImpl<#ty_ident>
                     },
                     quote! {
                         #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildImpl::new(
@@ -138,7 +136,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         )
                     },
                     quote! {
-                        fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild<#ty_ident, Parent = #parent_ident> {
+                        fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild<#ty_ident> {
                             &self.#method_ident
                         }
                     }
@@ -155,10 +153,9 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let method_ident = field_ident.clone();
         let ty_ident = &batch.name;
         if batch.parents.len() == 1 {
-            let parent_ident = &batch.parents[0];
             (
                 quote! {
-                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageBatchChildImpl<#ty_ident, #parent_ident>
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageBatchChildImpl<#ty_ident>
                 },
                 quote! {
                     #field_ident: ::fractic_aws_dynamo::ext::crud::ManageBatchChildImpl::new(
@@ -167,7 +164,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     )
                 },
                 quote! {
-                    fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageBatchChild<#ty_ident, Parent = #parent_ident> {
+                    fn #method_ident(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageBatchChild<#ty_ident> {
                         &self.#method_ident
                     }
                 }
