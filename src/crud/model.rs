@@ -5,10 +5,10 @@ use crate::crud::ast;
 #[derive(Debug)]
 pub struct ConfigModel {
     pub repository_name: Ident,
-    pub roots: Vec<RootDef>,
-    pub ordered_children: Vec<ChildDef>,
-    pub unordered_children: Vec<ChildDef>,
-    pub batches: Vec<BatchDef>,
+    pub root_objects: Vec<RootDef>,
+    pub ordered_objects: Vec<ChildDef>,
+    pub unordered_objects: Vec<ChildDef>,
+    pub batch_objects: Vec<BatchDef>,
 }
 
 #[derive(Debug)]
@@ -38,10 +38,10 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
     type Error = Error;
 
     fn try_from(value: ast::ConfigAst) -> Result<Self> {
-        let mut roots = Vec::new();
-        let mut ordered_children = Vec::new();
-        let mut unordered_children = Vec::new();
-        let mut batches = Vec::new();
+        let mut root_objects = Vec::new();
+        let mut ordered_objects = Vec::new();
+        let mut unordered_objects = Vec::new();
+        let mut batch_objects = Vec::new();
 
         for obj in value.objects {
             match obj.kind {
@@ -49,45 +49,27 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                     if obj.props.parent.is_some() {
                         return Err(Error::new(
                             obj.name.span(),
-                            "`root` must not have a `parent` property",
+                            "`root` objects cannot have a `parent` property",
                         ));
                     }
-                    roots.push(RootDef {
+                    root_objects.push(RootDef {
                         name: obj.name,
                         ordered_children: obj.props.ordered_children,
                         unordered_children: obj.props.unordered_children,
                         batch_children: obj.props.batch_children,
                     });
                 }
-                ast::ObjectKind::OrderedChild => {
+                ast::ObjectKind::Ordered => {
                     let parents = obj.props.parent.ok_or_else(|| {
-                        Error::new(obj.name.span(), "`ordered_child` requires a `parent`")
+                        Error::new(obj.name.span(), "`ordered` objects require a `parent`")
                     })?;
                     if parents.is_empty() {
                         return Err(Error::new(
                             obj.name.span(),
-                            "`ordered_child` requires at least one `parent`",
+                            "`ordered` objects require at least one `parent`",
                         ));
                     }
-                    ordered_children.push(ChildDef {
-                        name: obj.name,
-                        parents,
-                        ordered_children: obj.props.ordered_children,
-                        unordered_children: obj.props.unordered_children,
-                        batch_children: obj.props.batch_children,
-                    });
-                }
-                ast::ObjectKind::UnorderedChild => {
-                    let parents = obj.props.parent.ok_or_else(|| {
-                        Error::new(obj.name.span(), "`unordered_child` requires a `parent`")
-                    })?;
-                    if parents.is_empty() {
-                        return Err(Error::new(
-                            obj.name.span(),
-                            "`unordered_child` requires at least one `parent`",
-                        ));
-                    }
-                    unordered_children.push(ChildDef {
+                    ordered_objects.push(ChildDef {
                         name: obj.name,
                         parents,
                         ordered_children: obj.props.ordered_children,
@@ -95,28 +77,46 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         batch_children: obj.props.batch_children,
                     });
                 }
-                ast::ObjectKind::BatchChild => {
+                ast::ObjectKind::Unordered => {
                     let parents = obj.props.parent.ok_or_else(|| {
-                        Error::new(obj.name.span(), "`batch_child` requires a `parent`")
+                        Error::new(obj.name.span(), "`unordered` objects require a `parent`")
                     })?;
                     if parents.is_empty() {
                         return Err(Error::new(
                             obj.name.span(),
-                            "`batch_child` requires at least one `parent`",
+                            "`unordered` objects require at least one `parent`",
                         ));
                     }
-                    // Disallow any children on batches
+                    unordered_objects.push(ChildDef {
+                        name: obj.name,
+                        parents,
+                        ordered_children: obj.props.ordered_children,
+                        unordered_children: obj.props.unordered_children,
+                        batch_children: obj.props.batch_children,
+                    });
+                }
+                ast::ObjectKind::Batch => {
+                    let parents = obj.props.parent.ok_or_else(|| {
+                        Error::new(obj.name.span(), "`batch` objects require a `parent`")
+                    })?;
+                    if parents.is_empty() {
+                        return Err(Error::new(
+                            obj.name.span(),
+                            "`batch` objects require at least one `parent`",
+                        ));
+                    }
+                    // Disallow any children on batch objects.
                     if !obj.props.ordered_children.is_empty()
                         || !obj.props.unordered_children.is_empty()
                         || !obj.props.batch_children.is_empty()
                     {
                         return Err(Error::new(
                             obj.name.span(),
-                            "`batch_child` cannot have `ordered_children`, `unordered_children`, \
-                             or `batch_children`",
+                            "`batch` objects cannot have `ordered_children`, \
+                             `unordered_children`, or `batch_children`",
                         ));
                     }
-                    batches.push(BatchDef {
+                    batch_objects.push(BatchDef {
                         name: obj.name,
                         parents,
                     });
@@ -126,10 +126,10 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
 
         Ok(Self {
             repository_name: value.repository_name,
-            roots,
-            ordered_children,
-            unordered_children,
-            batches,
+            root_objects,
+            ordered_objects,
+            unordered_objects,
+            batch_objects,
         })
     }
 }

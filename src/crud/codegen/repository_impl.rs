@@ -14,7 +14,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     let impl_struct_ident = Ident::new(&format!("{}Impl", repo_name), repo_name.span());
 
     // Fields and initializers for roots.
-    let (root_fields, root_inits, root_trait_impls) = model.roots.iter().map(|root| {
+    let (root_fields, root_inits, root_trait_impls) = model.root_objects.iter().map(|root| {
         let field_ident = method_ident_for("manage", &root.name);
         let method_ident = field_ident.clone();
         let ty_ident = &root.name;
@@ -56,7 +56,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     }).collect::<(Vec<_>, Vec<_>, Vec<_>)>();
 
     // Fields, inits, trait impls for ordered children.
-    let (ordered_child_fields, ordered_child_inits, ordered_child_trait_impls) = model.ordered_children.iter().map(|child| {
+    let (ordered_child_fields, ordered_child_inits, ordered_child_trait_impls) = model.ordered_objects.iter().map(|child| {
         let field_ident = method_ident_for("manage", &child.name);
         let method_ident = field_ident.clone();
         let ty_ident = &child.name;
@@ -98,7 +98,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     }).collect::<(Vec<_>, Vec<_>, Vec<_>)>();
 
     // Fields, inits, trait impls for unordered children.
-    let (unordered_child_fields, unordered_child_inits, unordered_child_trait_impls) = model.unordered_children.iter().map(|child| {
+    let (unordered_child_fields, unordered_child_inits, unordered_child_trait_impls) = model.unordered_objects.iter().map(|child| {
         let field_ident = method_ident_for("manage", &child.name);
         let method_ident = field_ident.clone();
         let ty_ident = &child.name;
@@ -140,7 +140,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     }).collect::<(Vec<_>, Vec<_>, Vec<_>)>();
 
     // Fields, inits, trait impls for batch children.
-    let (batch_fields, batch_inits, batch_trait_impls) = model.batches.iter().map(|batch| {
+    let (batch_fields, batch_inits, batch_trait_impls) = model.batch_objects.iter().map(|batch| {
         let field_ident = method_ident_for("manage", &batch.name);
         let method_ident = field_ident.clone();
         let ty_ident = &batch.name;

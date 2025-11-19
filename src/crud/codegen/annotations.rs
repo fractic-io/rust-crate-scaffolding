@@ -13,7 +13,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     );
 
     // Build trait + impl blocks for root objects.
-    let root_items: ::std::vec::Vec<TokenStream> = model.roots.iter().map(|root| {
+    let root_items: ::std::vec::Vec<TokenStream> = model.root_objects.iter().map(|root| {
         let ty_ident = &root.name;
         let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
         let manager_ident = method_ident_for("manage", &root.name);
@@ -215,8 +215,8 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     }).collect();
 
     // Build trait + impl blocks for ordered child objects.
-    let child_items: ::std::vec::Vec<TokenStream> = model.ordered_children.iter().map(|c| (true, c)).chain(
-        model.unordered_children.iter().map(|c| (false, c))
+    let child_items: ::std::vec::Vec<TokenStream> = model.ordered_objects.iter().map(|c| (true, c)).chain(
+        model.unordered_objects.iter().map(|c| (false, c))
     ).map(|(is_ordered, child)| {
         let ty_ident = &child.name;
         let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());

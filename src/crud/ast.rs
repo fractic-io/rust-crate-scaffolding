@@ -48,22 +48,22 @@ impl Parse for ConfigAst {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectKind {
     Root,
-    OrderedChild,
-    UnorderedChild,
-    BatchChild,
+    Ordered,
+    Unordered,
+    Batch,
 }
 
 impl ObjectKind {
     fn expected_list() -> &'static str {
-        "`root`, `ordered_child`, `unordered_child`, or `batch_child`"
+        "`root`, `ordered`, `unordered`, or `batch`"
     }
 
     fn from_str(s: &str) -> Option<Self> {
         match s {
             "root" => Some(Self::Root),
-            "ordered_child" => Some(Self::OrderedChild),
-            "unordered_child" => Some(Self::UnorderedChild),
-            "batch_child" => Some(Self::BatchChild),
+            "ordered" => Some(Self::Ordered),
+            "unordered" => Some(Self::Unordered),
+            "batch" => Some(Self::Batch),
             _ => None,
         }
     }

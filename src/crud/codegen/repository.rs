@@ -8,7 +8,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     let repo_name = &model.repository_name;
 
     // Methods for roots.
-    let root_manage_methods = model.roots.iter().map(|root| {
+    let root_manage_methods = model.root_objects.iter().map(|root| {
         let type_ident = &root.name;
         let method_ident = method_ident_for("manage", &root.name);
         if root.has_children() {
@@ -23,7 +23,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     });
 
     // Methods for ordered children.
-    let (ordered_parent_of_impls, ordered_manage_methods) = model.ordered_children.iter().map(|child| {
+    let (ordered_parent_of_impls, ordered_manage_methods) = model.ordered_objects.iter().map(|child| {
         let type_ident = &child.name;
         let method_ident = method_ident_for("manage", &child.name);
         let parent_of_impls = child.parents.iter().map(|parent_ident| {
@@ -48,7 +48,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
     // Methods for unordered children.
-    let (unordered_parent_of_impls, unordered_manage_methods) = model.unordered_children.iter().map(|child| {
+    let (unordered_parent_of_impls, unordered_manage_methods) = model.unordered_objects.iter().map(|child| {
         let type_ident = &child.name;
         let method_ident = method_ident_for("manage", &child.name);
         let parent_of_impls = child.parents.iter().map(|parent_ident| {
@@ -73,7 +73,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
     // Methods for batch children.
-    let (batch_parent_of_impls, batch_manage_methods) = model.batches.iter().map(|child| {
+    let (batch_parent_of_impls, batch_manage_methods) = model.batch_objects.iter().map(|child| {
         let type_ident = &child.name;
         let method_ident = method_ident_for("manage", &child.name);
         let parent_of_impls = child.parents.iter().map(|parent_ident| {
