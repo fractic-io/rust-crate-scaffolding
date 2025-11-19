@@ -2,7 +2,13 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::Ident;
 
-use crate::{crud::model::ConfigModel, helpers::to_snake_case};
+use crate::{
+    crud::{
+        codegen::repository::{method_ident_for, method_ident_for_with_parent},
+        model::ConfigModel,
+    },
+    helpers::to_snake_case,
+};
 
 pub fn generate(model: &ConfigModel) -> TokenStream {
     let repo_name = &model.repository_name;
@@ -104,10 +110,10 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
 
     // Fields, inits, trait impls for unordered children.
     let (unordered_child_fields, unordered_child_inits, unordered_child_trait_impls) = model.unordered_children.iter().map(|child| {
-        let field_ident = method_ident_for("manage", &child.name);
-        let method_ident = field_ident.clone();
+        let method_ident = method_ident_for("manage", &child.name);
         let ty_ident = &child.name;
         if child.parents.len() == 1 {
+            let field_ident = method_ident_for("manage", &child.name);
             let parent_ident = &child.parents[0];
             if child.has_children() {
                 (
@@ -145,7 +151,64 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 )
             }
         } else {
-            todo!()
+            let dynamic_parent_ident = Ident::new(&format!("{}Parent", ty_ident), ty_ident.span());
+            if child.has_children() {
+                let (fields, inits) = child.parents.iter().map(|parent_ident| {
+                    let field_ident = method_ident_for_with_parent("manage", &method_ident, parent_ident);
+                    (
+                        quote! {
+                            pub #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildrenImpl<#ty_ident, #parent_ident>
+                        },
+                        quote! {
+                            #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildrenImpl::new(
+                                dynamo_util.clone(),
+                                crud_algorithms.clone(),
+                            )
+                        }
+                    )
+                }).collect::<(Vec<_>, Vec<_>)>();
+                (
+                    quote! {
+                        #(#fields,)*
+                    },
+                    quote! {
+                        #(#inits,)*
+                    },
+                    quote! {
+                        fn #method_ident<P: #dynamic_parent_ident>(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildWithChildren<#ty_ident, Parent = P> {
+                            P::resolve(self)
+                        }
+                    }
+                )
+            } else {
+                let (fields, inits) = child.parents.iter().map(|parent_ident| {
+                    let field_ident = method_ident_for_with_parent("manage", &method_ident, parent_ident);
+                    (
+                        quote! {
+                            pub #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildImpl<#ty_ident, #parent_ident>
+                        },
+                        quote! {
+                            #field_ident: ::fractic_aws_dynamo::ext::crud::ManageUnorderedChildImpl::new(
+                                dynamo_util.clone(),
+                                crud_algorithms.clone(),
+                            )
+                        }
+                    )
+                }).collect::<(Vec<_>, Vec<_>)>();
+                (
+                    quote! {
+                        #(#fields,)*
+                    },
+                    quote! {
+                        #(#inits,)*
+                    },
+                    quote! {
+                        fn #method_ident<P: #dynamic_parent_ident>(&self) -> &dyn ::fractic_aws_dynamo::ext::crud::ManageUnorderedChild<#ty_ident, Parent = P> {
+                            P::resolve(self)
+                        }
+                    }
+                )
+            }
         }
     }).collect::<(Vec<_>, Vec<_>, Vec<_>)>();
 
@@ -223,10 +286,4 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         #[allow(unused_imports)]
         pub(crate) use #macro_name_ident;
     }
-}
-
-fn method_ident_for(prefix: &str, ident: &Ident) -> Ident {
-    let snake = to_snake_case(&ident.to_string());
-    let name = format!("{}_{}", prefix, snake);
-    Ident::new(&name, ident.span())
 }
