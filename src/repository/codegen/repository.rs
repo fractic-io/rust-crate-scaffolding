@@ -97,7 +97,8 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
 }
 
 /// Build the trait method inputs and report whether the method must be generic
-/// over a lifetime `'a` (i.e., any argument required adding or normalizing to `'a`).
+/// over a lifetime `'a` (i.e., any argument contained an explicit `'a`/`'_'` that
+/// was normalized to `'a`).
 fn build_method_inputs(input: &ValueModel) -> (TokenStream, bool) {
     match input {
         ValueModel::None => (quote! {}, false),
@@ -160,8 +161,8 @@ fn generate_struct_fields(fields: &[FieldSpec]) -> Vec<TokenStream> {
 }
 
 /// Parse and normalize a type used in a method argument:
-/// - Any reference without a lifetime is given `'a`.
-/// - Any reference with lifetime `'a` or `'_' is rewritten to `'a`.
+/// - References with lifetime `'a` or `'_' are rewritten to `'a`.
+/// - References without an explicit lifetime are left unchanged.
 ///
 /// Returns the rewritten tokens and whether the method needs a `'a` generic.
 fn adjust_argument_lifetimes(tokens: TokenStream) -> (TokenStream, bool) {
@@ -175,9 +176,20 @@ fn adjust_argument_lifetimes(tokens: TokenStream) -> (TokenStream, bool) {
 }
 
 /// Parse and normalize a type used in a generated serde struct field:
-/// - Any reference with no lifetime, `'a`, or `'_' is rewritten to `'static`.
+/// - Top-level reference without a lifetime is stripped to its inner type.
+/// - Any `'a` or `'_' lifetime (at any depth) is rewritten to `'static`.
 fn adjust_struct_field_lifetimes(tokens: TokenStream) -> TokenStream {
-    if let Ok(mut ty) = syn::parse2::<Type>(tokens.clone()) {
+    if let Ok(mut ty_parsed) = syn::parse2::<Type>(tokens.clone()) {
+        // Strip the top-level reference if it has no lifetime.
+        let mut ty = if let Type::Reference(r) = &mut ty_parsed {
+            if r.lifetime.is_none() {
+                (*r.elem).clone()
+            } else {
+                ty_parsed
+            }
+        } else {
+            ty_parsed
+        };
         let mut _unused = false;
         rewrite_lifetimes_in_type(&mut ty, LifetimeTarget::SerdeStructField, &mut _unused);
         quote! { #ty }
@@ -200,17 +212,17 @@ fn is_lifetime_a_or_underscore(l: &Lifetime) -> bool {
 /// Target domain for lifetime rewriting.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LifetimeTarget {
-    /// Method argument position: normalize to `'a` and signal if `< 'a >` is
-    /// required.
+    /// Method argument position: rewrite explicit `'a`/`'_' to `'a` and signal
+    /// if `< 'a >` is required.
     MethodArg,
-    /// Serde struct field position: normalize to `'static`.
+    /// Serde struct field position: rewrite explicit `'a`/`'_' to `'static`.
     SerdeStructField,
 }
 
 /// Single traversal that rewrites lifetimes across a `syn::Type` according to
-/// `target`. When `target` is `MethodArg`, missing/`'a`/`'_' lifetimes become
-/// `'a` and `needs_a` is set if `'a` was introduced. When `target` is
-/// `SerdeStructField`, missing/`'a`/`'_' lifetimes become `'static`.
+/// `target`. When `target` is `MethodArg`, explicit `'a`/`'_' lifetimes become
+/// `'a` and `needs_a` is set. Missing lifetimes are left unchanged. When
+/// `target` is `SerdeStructField`, explicit `'a`/`'_' lifetimes become `'static`.
 fn rewrite_lifetimes_in_type(ty: &mut Type, target: LifetimeTarget, needs_a: &mut bool) {
     match ty {
         Type::Reference(r) => {
@@ -222,10 +234,7 @@ fn rewrite_lifetimes_in_type(ty: &mut Type, target: LifetimeTarget, needs_a: &mu
                             *needs_a = true;
                         }
                     }
-                    None => {
-                        r.lifetime = Some(lifetime_named("'a"));
-                        *needs_a = true;
-                    }
+                    None => {}
                 },
                 LifetimeTarget::SerdeStructField => match &mut r.lifetime {
                     Some(l) => {
@@ -233,9 +242,7 @@ fn rewrite_lifetimes_in_type(ty: &mut Type, target: LifetimeTarget, needs_a: &mu
                             *l = lifetime_named("'static");
                         }
                     }
-                    None => {
-                        r.lifetime = Some(lifetime_named("'static"));
-                    }
+                    None => {}
                 },
             }
             rewrite_lifetimes_in_type(&mut r.elem, target, needs_a);
