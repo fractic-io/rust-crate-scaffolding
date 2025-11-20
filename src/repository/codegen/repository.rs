@@ -1,6 +1,6 @@
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use syn::Type;
+use syn::{GenericArgument, Lifetime, PathArguments, Type, TypeParamBound};
 
 use crate::{
     helpers::to_pascal_case,
@@ -71,19 +71,24 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
         }
 
         // Build input parameters for the trait method.
-        let inputs_ts = build_method_inputs(&f.input);
+        let (inputs_ts, needs_a_lifetime) = build_method_inputs(&f.input);
 
         // Build return type for the trait method.
         let output_ts = build_method_output(&f.output, &output_ident, f.is_direct);
 
         // Compose method signature.
+        let maybe_generics = if needs_a_lifetime {
+            quote! { <'a> }
+        } else {
+            quote! {}
+        };
         if f.is_blocking {
             trait_methods.push(quote! {
-                fn #fn_ident(&self #inputs_ts) -> #output_ts;
+                fn #fn_ident #maybe_generics (&self #inputs_ts) -> #output_ts;
             });
         } else {
             trait_methods.push(quote! {
-                async fn #fn_ident(&self #inputs_ts) -> #output_ts;
+                async fn #fn_ident #maybe_generics (&self #inputs_ts) -> #output_ts;
             });
         }
     }
@@ -91,19 +96,24 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
     (quote! { #(#io_structs_accum)* }, trait_methods)
 }
 
-fn build_method_inputs(input: &ValueModel) -> TokenStream {
+fn build_method_inputs(input: &ValueModel) -> (TokenStream, bool) {
     match input {
-        ValueModel::None => quote! {},
+        ValueModel::None => (quote! {}, false),
         ValueModel::SingleType { ty_tokens } => {
-            quote! { , input: #ty_tokens }
+            let (normalized, needs) = normalize_for_signature(ty_tokens.clone());
+            (quote! { , input: #normalized }, needs)
         }
         ValueModel::Struct { fields, .. } => {
+            let mut needs_any = bool::default();
             let params = fields.iter().map(|f: &FieldSpec| {
                 let name = &f.name;
-                let ty_tokens = &f.ty_tokens;
-                quote! { #name: #ty_tokens }
+                let (normalized, needs) = normalize_for_signature(f.ty_tokens.clone());
+                if needs {
+                    needs_any = true;
+                }
+                quote! { #name: #normalized }
             });
-            quote! { , #(#params),* }
+            (quote! { , #(#params),* }, needs_any)
         }
     }
 }
@@ -141,18 +151,186 @@ fn generate_struct_fields(fields: &[FieldSpec]) -> Vec<TokenStream> {
         .map(|f| {
             let attrs = &f.attrs;
             let name = &f.name;
-            let ty = strip_top_level_reference(f.ty_tokens.clone());
+            let ty = normalize_for_struct(f.ty_tokens.clone());
             quote! { #(#attrs)* pub #name: #ty }
         })
         .collect()
 }
 
-fn strip_top_level_reference(tokens: TokenStream) -> TokenStream {
-    if let Ok(ty) = syn::parse2::<Type>(tokens.clone()) {
-        if let Type::Reference(r) = ty {
-            let inner = *r.elem;
-            return quote! { #inner };
-        }
+fn normalize_for_signature(tokens: TokenStream) -> (TokenStream, bool) {
+    if let Ok(mut ty) = syn::parse2::<Type>(tokens.clone()) {
+        let mut needs_a = false;
+        process_type_for_signature(&mut ty, &mut needs_a);
+        (quote! { #ty }, needs_a)
+    } else {
+        (tokens, false)
     }
-    tokens
+}
+
+fn normalize_for_struct(tokens: TokenStream) -> TokenStream {
+    if let Ok(mut ty) = syn::parse2::<Type>(tokens.clone()) {
+        process_type_for_struct(&mut ty);
+        quote! { #ty }
+    } else {
+        tokens
+    }
+}
+
+fn lifetime_named(name: &str) -> Lifetime {
+    Lifetime::new(name, proc_macro2::Span::call_site())
+}
+
+fn is_lifetime_a_or_underscore(l: &Lifetime) -> bool {
+    let ident = l.ident.to_string();
+    ident == "a" || ident == "_"
+}
+
+fn process_type_for_signature(ty: &mut Type, needs_a: &mut bool) {
+    match ty {
+        Type::Reference(r) => {
+            match &mut r.lifetime {
+                Some(l) => {
+                    if is_lifetime_a_or_underscore(l) {
+                        *l = lifetime_named("'a");
+                        *needs_a = true;
+                    }
+                }
+                None => {
+                    r.lifetime = Some(lifetime_named("'a"));
+                    *needs_a = true;
+                }
+            }
+            process_type_for_signature(&mut r.elem, needs_a);
+        }
+        Type::Tuple(t) => {
+            for elem in &mut t.elems {
+                process_type_for_signature(elem, needs_a);
+            }
+        }
+        Type::Slice(s) => {
+            process_type_for_signature(&mut s.elem, needs_a);
+        }
+        Type::Array(a) => {
+            process_type_for_signature(&mut a.elem, needs_a);
+        }
+        Type::Paren(p) => {
+            process_type_for_signature(&mut p.elem, needs_a);
+        }
+        Type::Group(g) => {
+            process_type_for_signature(&mut g.elem, needs_a);
+        }
+        Type::Path(p) => {
+            for seg in p.path.segments.iter_mut() {
+                if let PathArguments::AngleBracketed(ab) = &mut seg.arguments {
+                    for arg in ab.args.iter_mut() {
+                        match arg {
+                            GenericArgument::Type(t) => process_type_for_signature(t, needs_a),
+                            GenericArgument::Lifetime(l) => {
+                                if is_lifetime_a_or_underscore(l) {
+                                    *l = lifetime_named("'a");
+                                    *needs_a = true;
+                                }
+                            }
+                            GenericArgument::Const(_) => {}
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        Type::TraitObject(obj) => {
+            for b in obj.bounds.iter_mut() {
+                if let TypeParamBound::Lifetime(l) = b {
+                    if is_lifetime_a_or_underscore(l) {
+                        *l = lifetime_named("'a");
+                        *needs_a = true;
+                    }
+                }
+            }
+        }
+        Type::ImplTrait(it) => {
+            for b in it.bounds.iter_mut() {
+                if let TypeParamBound::Lifetime(l) = b {
+                    if is_lifetime_a_or_underscore(l) {
+                        *l = lifetime_named("'a");
+                        *needs_a = true;
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn process_type_for_struct(ty: &mut Type) {
+    match ty {
+        Type::Reference(r) => {
+            // Replace missing/'a/'_ by 'static
+            match &mut r.lifetime {
+                Some(l) => {
+                    if is_lifetime_a_or_underscore(l) {
+                        *l = lifetime_named("'static");
+                    }
+                }
+                None => {
+                    r.lifetime = Some(lifetime_named("'static"));
+                }
+            }
+            process_type_for_struct(&mut r.elem);
+        }
+        Type::Tuple(t) => {
+            for elem in &mut t.elems {
+                process_type_for_struct(elem);
+            }
+        }
+        Type::Slice(s) => {
+            process_type_for_struct(&mut s.elem);
+        }
+        Type::Array(a) => {
+            process_type_for_struct(&mut a.elem);
+        }
+        Type::Paren(p) => {
+            process_type_for_struct(&mut p.elem);
+        }
+        Type::Group(g) => {
+            process_type_for_struct(&mut g.elem);
+        }
+        Type::Path(p) => {
+            for seg in p.path.segments.iter_mut() {
+                if let PathArguments::AngleBracketed(ab) = &mut seg.arguments {
+                    for arg in ab.args.iter_mut() {
+                        match arg {
+                            GenericArgument::Type(t) => process_type_for_struct(t),
+                            GenericArgument::Lifetime(l) => {
+                                if is_lifetime_a_or_underscore(l) {
+                                    *l = lifetime_named("'static");
+                                }
+                            }
+                            GenericArgument::Const(_) => {}
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        Type::TraitObject(obj) => {
+            for b in obj.bounds.iter_mut() {
+                if let TypeParamBound::Lifetime(l) = b {
+                    if is_lifetime_a_or_underscore(l) {
+                        *l = lifetime_named("'static");
+                    }
+                }
+            }
+        }
+        Type::ImplTrait(it) => {
+            for b in it.bounds.iter_mut() {
+                if let TypeParamBound::Lifetime(l) = b {
+                    if is_lifetime_a_or_underscore(l) {
+                        *l = lifetime_named("'static");
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
 }
