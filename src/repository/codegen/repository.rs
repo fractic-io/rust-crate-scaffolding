@@ -100,14 +100,14 @@ fn build_method_inputs(input: &ValueModel) -> (TokenStream, bool) {
     match input {
         ValueModel::None => (quote! {}, false),
         ValueModel::SingleType { ty_tokens } => {
-            let (normalized, needs) = normalize_for_signature(ty_tokens.clone());
+            let (normalized, needs) = adjust_argument_lifetimes(ty_tokens.clone());
             (quote! { , input: #normalized }, needs)
         }
         ValueModel::Struct { fields, .. } => {
             let mut needs_any = bool::default();
             let params = fields.iter().map(|f: &FieldSpec| {
                 let name = &f.name;
-                let (normalized, needs) = normalize_for_signature(f.ty_tokens.clone());
+                let (normalized, needs) = adjust_argument_lifetimes(f.ty_tokens.clone());
                 if needs {
                     needs_any = true;
                 }
@@ -151,25 +151,26 @@ fn generate_struct_fields(fields: &[FieldSpec]) -> Vec<TokenStream> {
         .map(|f| {
             let attrs = &f.attrs;
             let name = &f.name;
-            let ty = normalize_for_struct(f.ty_tokens.clone());
+            let ty = adjust_struct_field_lifetimes(f.ty_tokens.clone());
             quote! { #(#attrs)* pub #name: #ty }
         })
         .collect()
 }
 
-fn normalize_for_signature(tokens: TokenStream) -> (TokenStream, bool) {
+fn adjust_argument_lifetimes(tokens: TokenStream) -> (TokenStream, bool) {
     if let Ok(mut ty) = syn::parse2::<Type>(tokens.clone()) {
         let mut needs_a = false;
-        process_type_for_signature(&mut ty, &mut needs_a);
+        rewrite_lifetimes_in_type(&mut ty, LifetimeTarget::MethodArg, &mut needs_a);
         (quote! { #ty }, needs_a)
     } else {
         (tokens, false)
     }
 }
 
-fn normalize_for_struct(tokens: TokenStream) -> TokenStream {
+fn adjust_struct_field_lifetimes(tokens: TokenStream) -> TokenStream {
     if let Ok(mut ty) = syn::parse2::<Type>(tokens.clone()) {
-        process_type_for_struct(&mut ty);
+        let mut _unused = false;
+        rewrite_lifetimes_in_type(&mut ty, LifetimeTarget::SerdeStructField, &mut _unused);
         quote! { #ty }
     } else {
         tokens
@@ -185,125 +186,77 @@ fn is_lifetime_a_or_underscore(l: &Lifetime) -> bool {
     ident == "a" || ident == "_"
 }
 
-fn process_type_for_signature(ty: &mut Type, needs_a: &mut bool) {
-    match ty {
-        Type::Reference(r) => {
-            match &mut r.lifetime {
-                Some(l) => {
-                    if is_lifetime_a_or_underscore(l) {
-                        *l = lifetime_named("'a");
-                        *needs_a = true;
-                    }
-                }
-                None => {
-                    r.lifetime = Some(lifetime_named("'a"));
-                    *needs_a = true;
-                }
-            }
-            process_type_for_signature(&mut r.elem, needs_a);
-        }
-        Type::Tuple(t) => {
-            for elem in &mut t.elems {
-                process_type_for_signature(elem, needs_a);
-            }
-        }
-        Type::Slice(s) => {
-            process_type_for_signature(&mut s.elem, needs_a);
-        }
-        Type::Array(a) => {
-            process_type_for_signature(&mut a.elem, needs_a);
-        }
-        Type::Paren(p) => {
-            process_type_for_signature(&mut p.elem, needs_a);
-        }
-        Type::Group(g) => {
-            process_type_for_signature(&mut g.elem, needs_a);
-        }
-        Type::Path(p) => {
-            for seg in p.path.segments.iter_mut() {
-                if let PathArguments::AngleBracketed(ab) = &mut seg.arguments {
-                    for arg in ab.args.iter_mut() {
-                        match arg {
-                            GenericArgument::Type(t) => process_type_for_signature(t, needs_a),
-                            GenericArgument::Lifetime(l) => {
-                                if is_lifetime_a_or_underscore(l) {
-                                    *l = lifetime_named("'a");
-                                    *needs_a = true;
-                                }
-                            }
-                            GenericArgument::Const(_) => {}
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-        Type::TraitObject(obj) => {
-            for b in obj.bounds.iter_mut() {
-                if let TypeParamBound::Lifetime(l) = b {
-                    if is_lifetime_a_or_underscore(l) {
-                        *l = lifetime_named("'a");
-                        *needs_a = true;
-                    }
-                }
-            }
-        }
-        Type::ImplTrait(it) => {
-            for b in it.bounds.iter_mut() {
-                if let TypeParamBound::Lifetime(l) = b {
-                    if is_lifetime_a_or_underscore(l) {
-                        *l = lifetime_named("'a");
-                        *needs_a = true;
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LifetimeTarget {
+    MethodArg,
+    SerdeStructField,
 }
 
-fn process_type_for_struct(ty: &mut Type) {
+fn rewrite_lifetimes_in_type(ty: &mut Type, target: LifetimeTarget, needs_a: &mut bool) {
     match ty {
         Type::Reference(r) => {
-            // Replace missing/'a/'_ by 'static
-            match &mut r.lifetime {
-                Some(l) => {
-                    if is_lifetime_a_or_underscore(l) {
-                        *l = lifetime_named("'static");
+            match target {
+                LifetimeTarget::MethodArg => match &mut r.lifetime {
+                    Some(l) => {
+                        if is_lifetime_a_or_underscore(l) {
+                            *l = lifetime_named("'a");
+                            *needs_a = true;
+                        }
                     }
-                }
-                None => {
-                    r.lifetime = Some(lifetime_named("'static"));
-                }
+                    None => {
+                        r.lifetime = Some(lifetime_named("'a"));
+                        *needs_a = true;
+                    }
+                },
+                LifetimeTarget::SerdeStructField => match &mut r.lifetime {
+                    Some(l) => {
+                        if is_lifetime_a_or_underscore(l) {
+                            *l = lifetime_named("'static");
+                        }
+                    }
+                    None => {
+                        r.lifetime = Some(lifetime_named("'static"));
+                    }
+                },
             }
-            process_type_for_struct(&mut r.elem);
+            rewrite_lifetimes_in_type(&mut r.elem, target, needs_a);
         }
         Type::Tuple(t) => {
             for elem in &mut t.elems {
-                process_type_for_struct(elem);
+                rewrite_lifetimes_in_type(elem, target, needs_a);
             }
         }
         Type::Slice(s) => {
-            process_type_for_struct(&mut s.elem);
+            rewrite_lifetimes_in_type(&mut s.elem, target, needs_a);
         }
         Type::Array(a) => {
-            process_type_for_struct(&mut a.elem);
+            rewrite_lifetimes_in_type(&mut a.elem, target, needs_a);
         }
         Type::Paren(p) => {
-            process_type_for_struct(&mut p.elem);
+            rewrite_lifetimes_in_type(&mut p.elem, target, needs_a);
         }
         Type::Group(g) => {
-            process_type_for_struct(&mut g.elem);
+            rewrite_lifetimes_in_type(&mut g.elem, target, needs_a);
         }
         Type::Path(p) => {
             for seg in p.path.segments.iter_mut() {
                 if let PathArguments::AngleBracketed(ab) = &mut seg.arguments {
                     for arg in ab.args.iter_mut() {
                         match arg {
-                            GenericArgument::Type(t) => process_type_for_struct(t),
+                            GenericArgument::Type(t) => {
+                                rewrite_lifetimes_in_type(t, target, needs_a)
+                            }
                             GenericArgument::Lifetime(l) => {
                                 if is_lifetime_a_or_underscore(l) {
-                                    *l = lifetime_named("'static");
+                                    match target {
+                                        LifetimeTarget::MethodArg => {
+                                            *l = lifetime_named("'a");
+                                            *needs_a = true;
+                                        }
+                                        LifetimeTarget::SerdeStructField => {
+                                            *l = lifetime_named("'static");
+                                        }
+                                    }
                                 }
                             }
                             GenericArgument::Const(_) => {}
@@ -317,7 +270,15 @@ fn process_type_for_struct(ty: &mut Type) {
             for b in obj.bounds.iter_mut() {
                 if let TypeParamBound::Lifetime(l) = b {
                     if is_lifetime_a_or_underscore(l) {
-                        *l = lifetime_named("'static");
+                        match target {
+                            LifetimeTarget::MethodArg => {
+                                *l = lifetime_named("'a");
+                                *needs_a = true;
+                            }
+                            LifetimeTarget::SerdeStructField => {
+                                *l = lifetime_named("'static");
+                            }
+                        }
                     }
                 }
             }
@@ -326,7 +287,15 @@ fn process_type_for_struct(ty: &mut Type) {
             for b in it.bounds.iter_mut() {
                 if let TypeParamBound::Lifetime(l) = b {
                     if is_lifetime_a_or_underscore(l) {
-                        *l = lifetime_named("'static");
+                        match target {
+                            LifetimeTarget::MethodArg => {
+                                *l = lifetime_named("'a");
+                                *needs_a = true;
+                            }
+                            LifetimeTarget::SerdeStructField => {
+                                *l = lifetime_named("'static");
+                            }
+                        }
                     }
                 }
             }
