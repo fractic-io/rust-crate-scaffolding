@@ -96,6 +96,8 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
     (quote! { #(#io_structs_accum)* }, trait_methods)
 }
 
+/// Build the trait method inputs and report whether the method must be generic
+/// over a lifetime `'a` (i.e., any argument required adding or normalizing to `'a`).
 fn build_method_inputs(input: &ValueModel) -> (TokenStream, bool) {
     match input {
         ValueModel::None => (quote! {}, false),
@@ -157,6 +159,11 @@ fn generate_struct_fields(fields: &[FieldSpec]) -> Vec<TokenStream> {
         .collect()
 }
 
+/// Parse and normalize a type used in a method argument:
+/// - Any reference without a lifetime is given `'a`.
+/// - Any reference with lifetime `'a` or `'_' is rewritten to `'a`.
+///
+/// Returns the rewritten tokens and whether the method needs a `'a` generic.
 fn adjust_argument_lifetimes(tokens: TokenStream) -> (TokenStream, bool) {
     if let Ok(mut ty) = syn::parse2::<Type>(tokens.clone()) {
         let mut needs_a = false;
@@ -167,6 +174,8 @@ fn adjust_argument_lifetimes(tokens: TokenStream) -> (TokenStream, bool) {
     }
 }
 
+/// Parse and normalize a type used in a generated serde struct field:
+/// - Any reference with no lifetime, `'a`, or `'_' is rewritten to `'static`.
 fn adjust_struct_field_lifetimes(tokens: TokenStream) -> TokenStream {
     if let Ok(mut ty) = syn::parse2::<Type>(tokens.clone()) {
         let mut _unused = false;
@@ -177,21 +186,31 @@ fn adjust_struct_field_lifetimes(tokens: TokenStream) -> TokenStream {
     }
 }
 
+/// Construct a `syn::Lifetime` from a string like `"'a"` or `"'static"`.
 fn lifetime_named(name: &str) -> Lifetime {
     Lifetime::new(name, proc_macro2::Span::call_site())
 }
 
+/// True if the lifetime is spelled `'a` or the placeholder `'_'.
 fn is_lifetime_a_or_underscore(l: &Lifetime) -> bool {
     let ident = l.ident.to_string();
     ident == "a" || ident == "_"
 }
 
+/// Target domain for lifetime rewriting.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LifetimeTarget {
+    /// Method argument position: normalize to `'a` and signal if `< 'a >` is
+    /// required.
     MethodArg,
+    /// Serde struct field position: normalize to `'static`.
     SerdeStructField,
 }
 
+/// Single traversal that rewrites lifetimes across a `syn::Type` according to
+/// `target`. When `target` is `MethodArg`, missing/`'a`/`'_' lifetimes become
+/// `'a` and `needs_a` is set if `'a` was introduced. When `target` is
+/// `SerdeStructField`, missing/`'a`/`'_' lifetimes become `'static`.
 fn rewrite_lifetimes_in_type(ty: &mut Type, target: LifetimeTarget, needs_a: &mut bool) {
     match ty {
         Type::Reference(r) => {
