@@ -199,7 +199,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 macro_rules! __ctx { () => { &dyn $ctx_view } }
                 #out
             };
-            ($ctx_view:path => $ctx_db_method:ident, $crud_algorithms:ty) => {
+            ($ctx:path => $ctx_db_method:ident, $crud_algorithms:ty) => {
                 macro_rules! __ctx { () => { & $ctx } }
                 #out_clone
             };
