@@ -199,9 +199,11 @@ fn replace_inline_structs_in_tokens(
 }
 
 fn build_helper_ident(fn_name: &Ident, chain: &[Ident]) -> Ident {
-    let mut name = to_pascal_case(&fn_name.to_string());
+    let mut parts: Vec<String> = Vec::with_capacity(1 + chain.len());
+    parts.push(to_pascal_case(&fn_name.to_string()));
     for c in chain {
-        name.push_str(&to_pascal_case(&c.to_string()));
+        parts.push(to_pascal_case(&c.to_string()));
     }
+    let name = parts.join("_");
     Ident::new(&name, Span::call_site())
 }

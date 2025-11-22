@@ -28,6 +28,7 @@ fn generate_helper_structs(model: &ConfigModel) -> TokenStream {
         let name = &h.name;
         let fields = generate_struct_fields(&h.fields);
         quote! {
+            #[allow(non_camel_case_types)]
             #[derive(::core::clone::Clone, ::core::fmt::Debug, ::serde::Serialize, ::serde::Deserialize)]
             pub struct #name {
                 #(#fields),*
