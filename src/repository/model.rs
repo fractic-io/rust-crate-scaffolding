@@ -1,5 +1,5 @@
 use proc_macro2::{Delimiter, Group, Ident, Span, TokenStream as TokenStream2, TokenTree};
-use syn::{Attribute, Error, Result};
+use syn::{Attribute, Error, LitStr, Result};
 
 use crate::{helpers::to_pascal_case, repository::ast};
 
@@ -17,6 +17,8 @@ pub struct FunctionModel {
     pub output: ValueModel,
     pub is_blocking: bool,
     pub is_direct: bool,
+    pub is_deprecated: bool,
+    pub deprecated_note: Option<LitStr>,
 }
 
 #[derive(Debug)]
@@ -80,12 +82,19 @@ fn build_function_model(
         ast::FunctionKindAst::Blocking => (true, false),
         ast::FunctionKindAst::BlockingDirect => (true, true),
     };
+    let (is_deprecated, deprecated_note): (bool, Option<LitStr>) = match func.deprecated {
+        Some(ast::DeprecatedAst::Flag) => (true, None),
+        Some(ast::DeprecatedAst::Note(lit)) => (true, Some(lit)),
+        None => (false, None),
+    };
     Ok(FunctionModel {
         name: fn_name,
         input,
         output,
         is_blocking,
         is_direct,
+        is_deprecated,
+        deprecated_note,
     })
 }
 

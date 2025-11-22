@@ -9,6 +9,7 @@ mod kw {
     syn::custom_keyword!(blocking_direct);
     syn::custom_keyword!(input);
     syn::custom_keyword!(output);
+    syn::custom_keyword!(deprecated);
 }
 
 #[derive(Debug)]
@@ -51,6 +52,7 @@ pub struct FunctionAst {
     pub input: ValueAst,
     pub output: ValueAst,
     pub kind: FunctionKindAst,
+    pub deprecated: Option<DeprecatedAst>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +61,12 @@ pub enum FunctionKindAst {
     AsyncDirect,
     Blocking,
     BlockingDirect,
+}
+
+#[derive(Debug)]
+pub enum DeprecatedAst {
+    Flag,
+    Note(syn::LitStr),
 }
 
 impl Parse for FunctionAst {
@@ -87,10 +95,11 @@ impl Parse for FunctionAst {
         let content;
         let _brace = braced!(content in input);
 
-        // Expect two properties: input and output (order-insensitive, but
-        // typically input then output).
+        // Parse properties: 'input', 'output', and optional 'deprecated'
+        // (order-insensitive).
         let mut input_val: Option<ValueAst> = None;
         let mut output_val: Option<ValueAst> = None;
+        let mut deprecated_val: Option<DeprecatedAst> = None;
         while !content.is_empty() {
             // Check for accidental comma.
             if content.peek(Token![,]) {
@@ -106,7 +115,10 @@ impl Parse for FunctionAst {
                 // Parse: input: <value>
                 let _k: kw::input = content.parse()?;
                 let _colon: Token![:] = content.parse()?;
-                let value = parse_value_until_key_or_end(&content, Some(KeyStop::Output))?;
+                let value = parse_value_until_key_or_end(
+                    &content,
+                    &[KeyStop::Output, KeyStop::Deprecated],
+                )?;
                 if input_val.is_some() {
                     return Err(Error::new(name.span(), "duplicate `input` property"));
                 }
@@ -115,17 +127,59 @@ impl Parse for FunctionAst {
                 // Parse: output: <value>
                 let _k: kw::output = content.parse()?;
                 let _colon: Token![:] = content.parse()?;
-                let value = parse_value_until_key_or_end(&content, None)?;
+                let value = parse_value_until_key_or_end(&content, &[KeyStop::Deprecated])?;
                 if output_val.is_some() {
                     return Err(Error::new(name.span(), "duplicate `output` property"));
                 }
                 output_val = Some(value);
+            } else if content.peek(kw::deprecated) {
+                // Parse: deprecated | deprecated: "note..."
+                let _k: kw::deprecated = content.parse()?;
+                if content.peek(Token![:]) {
+                    let _colon: Token![:] = content.parse()?;
+                    // Require a string literal (normal or raw); provide a friendly error if not.
+                    if content.peek(syn::Lit) {
+                        // Try to parse as a string literal specifically for robust erroring.
+                        let ahead = content.fork();
+                        if ahead.parse::<syn::LitStr>().is_ok() {
+                            let lit: syn::LitStr = content.parse()?;
+                            if deprecated_val.is_some() {
+                                return Err(Error::new(
+                                    name.span(),
+                                    "duplicate `deprecated` property",
+                                ));
+                            }
+                            deprecated_val = Some(DeprecatedAst::Note(lit));
+                        } else {
+                            // It's a literal but not a string.
+                            return Err(Error::new(
+                                Span::call_site(),
+                                "expected string literal for `deprecated` description; write \
+                                 deprecated: \"reason\" or omit the colon for a flag",
+                            ));
+                        }
+                    } else {
+                        return Err(Error::new(
+                            Span::call_site(),
+                            "expected string literal after `deprecated:`; remember to add quotes \
+                             (raw strings like r#\"...\"# are also supported)",
+                        ));
+                    }
+                } else {
+                    if deprecated_val.is_some() {
+                        return Err(Error::new(name.span(), "duplicate `deprecated` property"));
+                    }
+                    deprecated_val = Some(DeprecatedAst::Flag);
+                }
             } else {
                 // Unexpected token in function body.
                 let ahead: Ident = content.parse()?;
                 return Err(Error::new(
                     ahead.span(),
-                    format!("unknown key `{}`; expected `input` or `output`", ahead),
+                    format!(
+                        "unknown key `{}`; expected `input`, `output`, or `deprecated`",
+                        ahead
+                    ),
                 ));
             }
         }
@@ -139,6 +193,7 @@ impl Parse for FunctionAst {
             input,
             output,
             kind,
+            deprecated: deprecated_val,
         })
     }
 }
@@ -205,14 +260,12 @@ impl Parse for FieldAst {
 /// body.
 enum KeyStop {
     Output,
+    Deprecated,
 }
 
 /// Parse a ValueAst until either the next key (currently only `output`) or end
 /// of the function body.
-fn parse_value_until_key_or_end(
-    content: ParseStream<'_>,
-    stop: Option<KeyStop>,
-) -> Result<ValueAst> {
+fn parse_value_until_key_or_end(content: ParseStream<'_>, stops: &[KeyStop]) -> Result<ValueAst> {
     // None?
     if content.peek(Ident) {
         // Use a fork to see if the next ident is the literal "None" and is not
@@ -236,7 +289,7 @@ fn parse_value_until_key_or_end(
 
     // Otherwise, capture tokens until the next stop key or end of this function
     // body.
-    let tokens = read_tokens_until_next_key_or_end(content, stop)?;
+    let tokens = read_tokens_until_next_key_or_end(content, stops)?;
     Ok(ValueAst::TypeTokens(tokens))
 }
 
@@ -287,7 +340,7 @@ fn read_type_tokens_until_comma_or_end(input: ParseStream<'_>) -> Result<TokenSt
 /// of the function body.
 fn read_tokens_until_next_key_or_end(
     content: ParseStream<'_>,
-    stop: Option<KeyStop>,
+    stops: &[KeyStop],
 ) -> Result<TokenStream2> {
     let mut out = TokenStream2::new();
     let mut angle = 0isize;
@@ -296,10 +349,17 @@ fn read_tokens_until_next_key_or_end(
             break;
         }
         if angle == 0 {
-            if let Some(KeyStop::Output) = stop {
-                if content.peek(kw::output) && content.peek2(Token![:]) {
-                    break;
-                }
+            // Stop on configured keys at top-level.
+            if stops.iter().any(|s| matches!(s, KeyStop::Output))
+                && content.peek(kw::output)
+                && content.peek2(Token![:])
+            {
+                break;
+            }
+            if stops.iter().any(|s| matches!(s, KeyStop::Deprecated))
+                && content.peek(kw::deprecated)
+            {
+                break;
             }
         }
         // Consume token while tracking nesting. Treat nested groups as opaque

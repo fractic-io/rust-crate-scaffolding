@@ -82,12 +82,23 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
         } else {
             quote! {}
         };
+        let maybe_deprecated_attr = if f.is_deprecated {
+            if let Some(note) = &f.deprecated_note {
+                quote! { #[deprecated(note = #note)] }
+            } else {
+                quote! { #[deprecated] }
+            }
+        } else {
+            quote! {}
+        };
         if f.is_blocking {
             trait_methods.push(quote! {
+                #maybe_deprecated_attr
                 fn #fn_ident #maybe_generics (&self #inputs_ts) -> #output_ts;
             });
         } else {
             trait_methods.push(quote! {
+                #maybe_deprecated_attr
                 async fn #fn_ident #maybe_generics (&self #inputs_ts) -> #output_ts;
             });
         }
