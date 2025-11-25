@@ -45,17 +45,6 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 quote! { .await }
             };
 
-            // Deprecation attribute, if any.
-            let maybe_deprecated_attr = if f.is_deprecated {
-                if let Some(note) = &f.deprecated_note {
-                    quote! { #[deprecated(note = #note)] }
-                } else {
-                    quote! { #[deprecated] }
-                }
-            } else {
-                quote! {}
-            };
-
             // Compose call site and mapping.
             let call_invoke = quote! {
                 let __repo: Arc<dyn #repo_name> = { __repo_init!() };
@@ -118,7 +107,6 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             };
 
             quote! {
-                #maybe_deprecated_attr
                 pub #maybe_async fn #handler_ident(#handler_params_sig) -> #handler_ret_ty {
                     #body_ts
                 }
