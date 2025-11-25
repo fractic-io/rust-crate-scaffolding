@@ -60,12 +60,13 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
                     }
                 });
             }
-            ValueModel::SingleType { ty_tokens } => {
-                let field_ty = adjust_struct_field_lifetimes(ty_tokens.clone());
+            ValueModel::SingleType { field } => {
+                let single_fields = vec![field.clone()];
+                let fields_ts = generate_struct_fields(&single_fields);
                 io_structs_accum.push(quote! {
                     #[derive(::core::clone::Clone, ::core::fmt::Debug, ::serde::Deserialize)]
                     pub struct #input_ident {
-                        pub value: #field_ty
+                        #(#fields_ts),*
                     }
                 });
             }
@@ -83,12 +84,13 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
                     }
                 });
             }
-            ValueModel::SingleType { ty_tokens } => {
-                let field_ty = adjust_struct_field_lifetimes(ty_tokens.clone());
+            ValueModel::SingleType { field } => {
+                let single_fields = vec![field.clone()];
+                let fields_ts = generate_struct_fields(&single_fields);
                 io_structs_accum.push(quote! {
                     #[derive(::core::clone::Clone, ::core::fmt::Debug, ::serde::Serialize)]
                     pub struct #output_ident {
-                        pub value: #field_ty
+                        #(#fields_ts),*
                     }
                 });
             }
@@ -138,8 +140,8 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
 fn build_method_inputs(input: &ValueModel) -> (TokenStream, bool) {
     match input {
         ValueModel::None => (quote! {}, false),
-        ValueModel::SingleType { ty_tokens } => {
-            let (normalized, needs) = adjust_argument_lifetimes(ty_tokens.clone());
+        ValueModel::SingleType { field } => {
+            let (normalized, needs) = adjust_argument_lifetimes(field.ty_tokens.clone());
             (quote! { , input: #normalized }, needs)
         }
         ValueModel::Struct { fields, .. } => {
@@ -171,15 +173,13 @@ fn build_method_output(
     }
     match output {
         ValueModel::None => wrap(is_direct, quote! { () }),
-        ValueModel::SingleType { ty_tokens } => wrap(is_direct, quote! { #ty_tokens }),
-        ValueModel::Struct { fields, .. } => {
-            if fields.len() == 1 {
-                let ty = &fields[0].ty_tokens;
-                wrap(is_direct, quote! { #ty })
-            } else {
-                let out = output_struct_ident;
-                wrap(is_direct, quote! { #out })
-            }
+        ValueModel::SingleType { field } => {
+            let ty = &field.ty_tokens;
+            wrap(is_direct, quote! { #ty })
+        }
+        ValueModel::Struct { .. } => {
+            let out = output_struct_ident;
+            wrap(is_direct, quote! { #out })
         }
     }
 }

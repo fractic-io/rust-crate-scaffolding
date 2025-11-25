@@ -77,25 +77,15 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 }
             } else {
                 // Non-direct: handler returns Result<..., ServerError>
-                match &f.output {
-                    ValueModel::None => {
-                        quote! {
-                            #call_invoke
-                            __result
-                        }
+                if let Some(map_expr) = map_ok_expr {
+                    quote! {
+                        #call_invoke
+                        __result.map(#map_expr)
                     }
-                    _ => {
-                        if let Some(map_expr) = map_ok_expr {
-                            quote! {
-                                #call_invoke
-                                __result.map(#map_expr)
-                            }
-                        } else {
-                            quote! {
-                                #call_invoke
-                                __result
-                            }
-                        }
+                } else {
+                    quote! {
+                        #call_invoke
+                        __result
                     }
                 }
             };
@@ -131,18 +121,19 @@ fn build_handler_inputs(
 ) -> (TokenStream, TokenStream) {
     match input {
         ValueModel::None => (quote! {}, quote! {}),
-        ValueModel::SingleType { ty_tokens } => {
+        ValueModel::SingleType { field } => {
             // Always accept the generated FunctionNameInput for uniformity.
             let sig = quote! { input: #input_struct_ident };
-            let needs_ref_mode = argument_needs_reference(ty_tokens.clone());
+            let needs_ref_mode = argument_needs_reference(field.ty_tokens.clone());
+            let name = &field.name;
             let call = if needs_ref_mode.requires_ref {
                 if needs_ref_mode.original_had_explicit_lifetime {
-                    quote! { input.value }
+                    quote! { input.#name }
                 } else {
-                    quote! { &input.value }
+                    quote! { &input.#name }
                 }
             } else {
-                quote! { input.value }
+                quote! { input.#name }
             };
             (sig, call)
         }
@@ -182,34 +173,23 @@ fn build_handler_output(
                 (wrap_result(quote! { () }), None)
             }
         }
-        ValueModel::SingleType { .. } => {
+        ValueModel::SingleType { field } => {
             let out_ty = quote! { #output_struct_ident };
             // Map single type into the generated Output wrapper with field `value`.
-            let mapper = quote! { |__val| #output_struct_ident { value: __val } };
+            let name = &field.name;
+            let mapper = quote! { |__val| #output_struct_ident { #name: __val } };
             if is_direct {
                 (quote! { #out_ty }, Some(mapper))
             } else {
                 (wrap_result(quote! { #out_ty }), Some(mapper))
             }
         }
-        ValueModel::Struct { fields, .. } => {
-            if fields.len() == 1 {
-                let out_ty = quote! { #output_struct_ident };
-                // When repository returns the inner field directly, map Ok(inner) -> Ok(Output { field: inner }).
-                let field_name = &fields[0].name;
-                let mapper = quote! { |__val| #output_struct_ident { #field_name: __val } };
-                if is_direct {
-                    (quote! { #out_ty }, Some(mapper))
-                } else {
-                    (wrap_result(quote! { #out_ty }), Some(mapper))
-                }
+        ValueModel::Struct { .. } => {
+            let out_ty = quote! { #output_struct_ident };
+            if is_direct {
+                (quote! { #out_ty }, None)
             } else {
-                let out_ty = quote! { #output_struct_ident };
-                if is_direct {
-                    (quote! { #out_ty }, None)
-                } else {
-                    (wrap_result(quote! { #out_ty }), None)
-                }
+                (wrap_result(quote! { #out_ty }), None)
             }
         }
     }
