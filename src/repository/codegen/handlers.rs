@@ -1,6 +1,6 @@
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use syn::{GenericArgument, Lifetime, PathArguments, Type, TypeParamBound};
+use syn::Type;
 
 use crate::{
     helpers::{to_pascal_case, to_snake_case},
@@ -126,8 +126,9 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         })
         .collect();
 
-    // The macro accepts a single block/expression that initializes or retrieves the repo.
-    // We wrap it in an inner macro so every handler can reuse it without re-parsing.
+    // The macro accepts a single block/expression that initializes or retrieves
+    // the repo. We wrap it in an inner macro so every handler can reuse it
+    // without re-parsing.
     let handlers_iter = per_fn_handlers.iter();
     quote! {
         #[allow(unused_macros)]
@@ -150,22 +151,9 @@ fn build_handler_inputs(
     match input {
         ValueModel::None => (quote! {}, quote! {}),
         ValueModel::SingleType { ty_tokens } => {
-            // Accept a serde-friendly type for the handler parameter.
-            let serde_ty = adjust_struct_field_lifetimes(ty_tokens.clone());
-            let needs_ref_mode = argument_needs_reference(ty_tokens.clone());
-            let sig = quote! { input: #serde_ty };
-            let call = if needs_ref_mode.requires_ref {
-                if needs_ref_mode.original_had_explicit_lifetime {
-                    // Serde type kept as a reference (&'static _), pass as-is.
-                    quote! { input }
-                } else {
-                    // Serde type stripped the top-level ref, borrow it.
-                    quote! { &input }
-                }
-            } else {
-                quote! { input }
-            };
-            (sig, call)
+            // Accept and forward the single type directly.
+            let sig = quote! { input: #ty_tokens };
+            (sig, quote! { input })
         }
         ValueModel::Struct { fields, .. } => {
             let sig = quote! { input: #input_struct_ident };
@@ -202,13 +190,15 @@ fn build_handler_output(
     match output {
         ValueModel::None => (wrap(is_direct, quote! { () }), None),
         ValueModel::SingleType { ty_tokens } => {
-            // For single type outputs, return the type directly (serde assumed).
+            // For single type outputs, return the type directly (serde
+            // assumed).
             (wrap(is_direct, quote! { #ty_tokens }), None)
         }
         ValueModel::Struct { fields, .. } => {
             if fields.len() == 1 {
+                // When repository returns the inner field directly, map
+                // Ok(inner) -> Ok(Output { field: inner }).
                 let out_ty = quote! { #output_struct_ident };
-                // When repository returns the inner field directly, map Ok(inner) -> Ok(Output { field: inner }).
                 let field_name = &fields[0].name;
                 let mapper = quote! { |__val| #output_struct_ident { #field_name: __val } };
                 (wrap(is_direct, out_ty), Some(mapper))
@@ -246,115 +236,4 @@ fn argument_needs_reference(tokens: TokenStream) -> RefMode {
             original_had_explicit_lifetime: false,
         }
     }
-}
-
-/// Parse and normalize a type used in a generated serde struct field (or single input):
-/// - Top-level reference without a lifetime is stripped to its inner type.
-/// - Any `'a` or `'_' lifetime (at any depth) is rewritten to `'static`.
-fn adjust_struct_field_lifetimes(tokens: TokenStream) -> TokenStream {
-    if let Ok(mut ty_parsed) = syn::parse2::<Type>(tokens.clone()) {
-        // Strip the top-level reference if it has no lifetime.
-        let mut ty = if let Type::Reference(r) = &mut ty_parsed {
-            if r.lifetime.is_none() {
-                (*r.elem).clone()
-            } else {
-                ty_parsed
-            }
-        } else {
-            ty_parsed
-        };
-        let mut _unused = false;
-        rewrite_lifetimes_in_type(&mut ty, LifetimeTarget::SerdeStructField, &mut _unused);
-        quote! { #ty }
-    } else {
-        tokens
-    }
-}
-
-/// Construct a `syn::Lifetime` from a string like `"'static"`.
-fn lifetime_named(name: &str) -> Lifetime {
-    Lifetime::new(name, proc_macro2::Span::call_site())
-}
-
-/// Target domain for lifetime rewriting.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum LifetimeTarget {
-    /// Serde struct field position: rewrite explicit `'a`/`'_' to `'static`.
-    SerdeStructField,
-}
-
-/// Single traversal that rewrites lifetimes across a `syn::Type` according to
-/// `target`. When `target` is `SerdeStructField`, explicit `'a`/`'_' lifetimes become `'static`.
-fn rewrite_lifetimes_in_type(ty: &mut Type, target: LifetimeTarget, needs_a: &mut bool) {
-    match ty {
-        Type::Reference(r) => {
-            if let Some(l) = &mut r.lifetime {
-                if is_lifetime_a_or_underscore(l) {
-                    *l = lifetime_named("'static");
-                }
-            }
-            rewrite_lifetimes_in_type(&mut r.elem, target, needs_a);
-        }
-        Type::Tuple(t) => {
-            for elem in &mut t.elems {
-                rewrite_lifetimes_in_type(elem, target, needs_a);
-            }
-        }
-        Type::Slice(s) => {
-            rewrite_lifetimes_in_type(&mut s.elem, target, needs_a);
-        }
-        Type::Array(a) => {
-            rewrite_lifetimes_in_type(&mut a.elem, target, needs_a);
-        }
-        Type::Paren(p) => {
-            rewrite_lifetimes_in_type(&mut p.elem, target, needs_a);
-        }
-        Type::Group(g) => {
-            rewrite_lifetimes_in_type(&mut g.elem, target, needs_a);
-        }
-        Type::Path(p) => {
-            for seg in p.path.segments.iter_mut() {
-                if let PathArguments::AngleBracketed(ab) = &mut seg.arguments {
-                    for arg in ab.args.iter_mut() {
-                        match arg {
-                            GenericArgument::Type(t) => {
-                                rewrite_lifetimes_in_type(t, target, needs_a)
-                            }
-                            GenericArgument::Lifetime(l) => {
-                                if is_lifetime_a_or_underscore(l) {
-                                    *l = lifetime_named("'static");
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-        Type::TraitObject(obj) => {
-            for b in obj.bounds.iter_mut() {
-                if let TypeParamBound::Lifetime(l) = b {
-                    if is_lifetime_a_or_underscore(l) {
-                        *l = lifetime_named("'static");
-                    }
-                }
-            }
-        }
-        Type::ImplTrait(it) => {
-            for b in it.bounds.iter_mut() {
-                if let TypeParamBound::Lifetime(l) = b {
-                    if is_lifetime_a_or_underscore(l) {
-                        *l = lifetime_named("'static");
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-/// True if the lifetime is spelled `'a` or the placeholder `'_'.
-fn is_lifetime_a_or_underscore(l: &Lifetime) -> bool {
-    let ident = l.ident.to_string();
-    ident == "a" || ident == "_"
 }
