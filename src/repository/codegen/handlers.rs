@@ -58,7 +58,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
 
             // Compose call site and mapping.
             let call_invoke = quote! {
-                let __repo = { __repo_init!() };
+                let __repo: Arc<dyn #repo_name> = { __repo_init!() };
                 let __result = __repo.#fn_ident(#call_args_ts) #maybe_await;
             };
 
