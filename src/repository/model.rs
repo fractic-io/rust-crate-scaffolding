@@ -25,8 +25,8 @@ pub struct FunctionModel {
 pub enum ValueModel {
     None,
     SingleType {
-        /// Single field semantics with preserved name/attributes and resolved type.
-        field: FieldSpec,
+        /// Verbatim tokens representing the type.
+        ty_tokens: TokenStream2,
     },
     Struct {
         /// Flattened list of fields, with helper replacements in types and all
@@ -113,23 +113,13 @@ fn build_value_model(
                 ts,
                 helper_structs,
             )?;
-            // There is no field name/attributes in this form; synthesize a neutral field.
-            let field = FieldSpec {
-                attrs: Vec::new(),
-                name: Ident::new("value", Span::call_site()),
+            Ok(ValueModel::SingleType {
                 ty_tokens: replaced,
-            };
-            Ok(ValueModel::SingleType { field })
+            })
         }
         ast::ValueAst::Struct(s) => {
             let fields = resolve_inline_struct_fields(fn_name, &[], s, helper_structs)?;
-            if fields.len() == 1 {
-                Ok(ValueModel::SingleType {
-                    field: fields.into_iter().next().unwrap(),
-                })
-            } else {
-                Ok(ValueModel::Struct { fields })
-            }
+            Ok(ValueModel::Struct { fields })
         }
     }
 }
