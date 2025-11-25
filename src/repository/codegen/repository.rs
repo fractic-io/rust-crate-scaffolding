@@ -50,25 +50,49 @@ fn generate_functions_and_trait_methods(model: &ConfigModel) -> (TokenStream, Ve
         let output_ident: Ident = format_ident!("{}Output", base_pascal);
 
         // Define input struct if needed.
-        if let ValueModel::Struct { fields } = &f.input {
-            let fields_ts = generate_struct_fields(fields);
-            io_structs_accum.push(quote! {
-                #[derive(::core::clone::Clone, ::core::fmt::Debug, ::serde::Deserialize)]
-                pub struct #input_ident {
-                    #(#fields_ts),*
-                }
-            });
+        match &f.input {
+            ValueModel::Struct { fields } => {
+                let fields_ts = generate_struct_fields(fields);
+                io_structs_accum.push(quote! {
+                    #[derive(::core::clone::Clone, ::core::fmt::Debug, ::serde::Deserialize)]
+                    pub struct #input_ident {
+                        #(#fields_ts),*
+                    }
+                });
+            }
+            ValueModel::SingleType { ty_tokens } => {
+                let field_ty = adjust_struct_field_lifetimes(ty_tokens.clone());
+                io_structs_accum.push(quote! {
+                    #[derive(::core::clone::Clone, ::core::fmt::Debug, ::serde::Deserialize)]
+                    pub struct #input_ident {
+                        pub value: #field_ty
+                    }
+                });
+            }
+            ValueModel::None => {}
         }
-        // Define output struct if needed (always define for Struct, even if
-        // single field).
-        if let ValueModel::Struct { fields } = &f.output {
-            let fields_ts = generate_struct_fields(fields);
-            io_structs_accum.push(quote! {
-                #[derive(::core::clone::Clone, ::core::fmt::Debug, ::serde::Serialize)]
-                pub struct #output_ident {
-                    #(#fields_ts),*
-                }
-            });
+
+        // Define output struct if needed.
+        match &f.output {
+            ValueModel::Struct { fields } => {
+                let fields_ts = generate_struct_fields(fields);
+                io_structs_accum.push(quote! {
+                    #[derive(::core::clone::Clone, ::core::fmt::Debug, ::serde::Serialize)]
+                    pub struct #output_ident {
+                        #(#fields_ts),*
+                    }
+                });
+            }
+            ValueModel::SingleType { ty_tokens } => {
+                let field_ty = adjust_struct_field_lifetimes(ty_tokens.clone());
+                io_structs_accum.push(quote! {
+                    #[derive(::core::clone::Clone, ::core::fmt::Debug, ::serde::Serialize)]
+                    pub struct #output_ident {
+                        pub value: #field_ty
+                    }
+                });
+            }
+            ValueModel::None => {}
         }
 
         // Build input parameters for the trait method.
