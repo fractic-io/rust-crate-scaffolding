@@ -12,7 +12,14 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         repo_name.span(),
     );
 
-    // One result enum for the entire scaffolding.
+    // Return type of all CRUD operations. This is made a serializable untagged
+    // enum to transparently provide callers with the JSON they expect given the
+    // operation requested (without any additional layers of wrapping).
+    //
+    // If used together with fractic_aws_apigateway's router handling, the Crud
+    // and OwnedCrud specs require handlers of type (CrudOperation<T>) ->
+    // Result<impl serde::Serialize, ServerError>, so this enum satisfies that
+    // requirement.
     let crud_result_enum = quote! {
         #[derive(::serde::Serialize)]
         #[serde(untagged)]
@@ -26,7 +33,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         }
     };
 
-    // Build handler for a root type.
+    // Build handlers for root types.
     let root_handlers = model.root_objects.iter().map(|root| {
         let ty_ident = &root.name;
         let manager_ident = method_ident_for("manage", ty_ident);
@@ -230,7 +237,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         }
     });
 
-    // Compose the macro similar to repository handlers.
+    // Compose generation macro.
     let root_handlers_iter = root_handlers.into_iter();
     let ordered_handlers_iter = ordered_handlers.into_iter();
     let unordered_handlers_iter = unordered_handlers.into_iter();
