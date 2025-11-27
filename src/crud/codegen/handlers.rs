@@ -18,7 +18,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         #[serde(untagged)]
         pub enum __CrudOperationResult<T>
         where
-            T: ::fractic_aws_dynamo::DynamoObject + ::serde::Serialize,
+            T: ::fractic_aws_dynamo::schema::DynamoObject + ::serde::Serialize,
         {
             Created { created_id: ::fractic_aws_dynamo::schema::PkSk },
             Read(T),
@@ -85,8 +85,15 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     // Build handlers for ordered children (require parent_id, allow `after`).
     let ordered_handlers = model.ordered_objects.iter().map(|child| {
         let ty_ident = &child.name;
-        let parent_ident = &child.parents[0];
-        let parent_data_ident = Ident::new(&format!("{}Data", parent_ident), parent_ident.span());
+        let (parent_ident, parent_data_ident) = {
+            // These idents are used only to create dummy objects for repository
+            // methods requiring a &T `parent` argument. Since the dummy object
+            // is only needed to satisfy the type system, we can use any valid
+            // parent type.
+            let p = &child.parents[0];
+            let d = Ident::new(&format!("{}Data", p), p.span());
+            (p, d)
+        };
         let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
         let manager_ident = method_ident_for("manage", ty_ident);
         let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
@@ -113,6 +120,10 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                                 ).into()
                             );
                         };
+                        // Create dummy `parent` and `after` objects to satisfy
+                        // the type-safety of the CRUD repository methods. In
+                        // their internal logic, only the `id` field of these
+                        // objects are used, so this is hacky but safe.
                         let __tmp_parent = #parent_ident {
                             id: parent_id,
                             data: #parent_data_ident::default(),
@@ -148,8 +159,15 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     // Build handlers for unordered children (require parent_id, forbid `after`).
     let unordered_handlers = model.unordered_objects.iter().map(|child| {
         let ty_ident = &child.name;
-        let parent_ident = &child.parents[0];
-        let parent_data_ident = Ident::new(&format!("{}Data", parent_ident), parent_ident.span());
+        let (parent_ident, parent_data_ident) = {
+            // These idents are used only to create dummy objects for repository
+            // methods requiring a &T `parent` argument. Since the dummy object
+            // is only needed to satisfy the type system, we can use any valid
+            // parent type.
+            let p = &child.parents[0];
+            let d = Ident::new(&format!("{}Data", p), p.span());
+            (p, d)
+        };
         let manager_ident = method_ident_for("manage", ty_ident);
         let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
         let has_children = child.has_children();
@@ -182,6 +200,10 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                                 ).into()
                             );
                         }
+                        // Create a dummy `parent` object to satisfy the
+                        // type-safety of the CRUD repository methods. In their
+                        // internal logic, only the `id` field of this object is
+                        // used, so this is hacky but safe.
                         let __tmp_parent = #parent_ident {
                             id: parent_id,
                             data: #parent_data_ident::default(),
