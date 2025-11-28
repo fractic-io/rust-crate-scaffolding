@@ -242,9 +242,11 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         .chain(model.unordered_objects.iter().map(|child| (child, false)))
         .map(|(child, is_ordered)| {
             let ty_ident = &child.name;
-            // These idents are used only to create placeholder objects, so we
-            // can use any valid parent type.
-            let parent_ident = &child.parents[0];
+            let parent_ident = {
+                // These idents are used only to create placeholder objects, so
+                // we can use any valid parent type.
+                &child.parents[0]
+            };
             let manager_ident = method_ident_for("manage", ty_ident);
             let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
             let has_children = child.has_children();
@@ -486,9 +488,11 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     // Build handlers for batch children.
     let batch_handlers = model.batch_objects.iter().map(|batch| {
         let ty_ident = &batch.name;
-        // These idents are used only to create placeholder objects, so we can
-        // use any valid parent type.
-        let parent_ident = &batch.parents[0];
+        let parent_ident = {
+            // These idents are used only to create placeholder objects, so we
+            // can use any valid parent type.
+            &batch.parents[0]
+        };
         let manager_ident = method_ident_for("manage", ty_ident);
         let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
 
@@ -566,6 +570,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         }
     });
 
+    // Compose generation macro.
     let root_handlers_iter = root_handlers.into_iter();
     let child_handlers_iter = child_handlers.into_iter();
     let batch_handlers_iter = batch_handlers.into_iter();
