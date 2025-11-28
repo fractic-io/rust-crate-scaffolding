@@ -244,6 +244,8 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         .map(|(child, is_ordered)| {
             let ty_ident = &child.name;
             let (parent_ident, parent_data_ident) = {
+                // These idents are used only to create placeholder objects, so
+                // we can use any valid parent type.
                 let p = &child.parents[0];
                 let d = Ident::new(&format!("{}Data", p), p.span());
                 (p, d)
@@ -495,6 +497,8 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     let batch_handlers = model.batch_objects.iter().map(|batch| {
         let ty_ident = &batch.name;
         let (parent_ident, parent_data_ident) = {
+            // These idents are used only to create placeholder objects, so we
+            // can use any valid parent type.
             let p = &batch.parents[0];
             let d = Ident::new(&format!("{}Data", p), p.span());
             (p, d)
@@ -585,10 +589,17 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         macro_rules! #macro_name_ident {
             ($($repo_init:tt)+) => {
                 macro_rules! __repo_init { () => { { $($repo_init)+ } } }
-                /// Creates a placeholder Dynamo object that only carries the provided
-                /// identifier plus default `data`/`auto_fields`. This lets the
-                /// generated handlers call repository methods that require owned
-                /// objects without performing an extra read round-trip.
+
+                /// The generated handlers forward CRUD operations into calls to
+                /// repository methods, but for type safety the repository
+                /// methods require typed object references (ex. &T `parent` or
+                /// `after`). Since the CRUD API calls take IDs rather than full
+                /// objects, we must construct placeholder objects to satisfy
+                /// the type requirements. Since the internal repository logic
+                /// only uses the object's ID, this is a bit hacky but safe.
+                ///
+                /// This helper simply constructs an empty object of type $ty,
+                /// with no data except the provided ID.
                 macro_rules! __dummy_item {
                     ($ty:ty, $data_ty:ty, $id:expr) => {
                         $ty {
@@ -598,6 +609,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         }
                     };
                 }
+
                 #crud_result_enum
                 #(#root_handlers_iter)*
                 #(#child_handlers_iter)*
