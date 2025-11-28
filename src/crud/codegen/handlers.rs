@@ -27,11 +27,11 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         where
             T: ::fractic_aws_dynamo::schema::DynamoObject + ::serde::Serialize,
         {
-            Created { created_id: ::fractic_aws_dynamo::schema::PkSk },
-            CreatedBatch { created_ids: ::std::vec::Vec<::fractic_aws_dynamo::schema::PkSk> },
-            Read(T),
+            CreatedId { created_id: ::fractic_aws_dynamo::schema::PkSk },
+            CreatedIds { created_ids: ::std::vec::Vec<::fractic_aws_dynamo::schema::PkSk> },
+            Item(T),
             Items(::std::vec::Vec<T>),
-            Unit(()),
+            Unit,
         }
     };
 
@@ -72,11 +72,11 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     );
                 }
                 let __created = __repo.#manager_ident().add(data).await?;
-                ::std::result::Result::Ok(__CrudOperationResult::Created { created_id: __created.id })
+                ::std::result::Result::Ok(__CrudOperationResult::CreatedId { created_id: __created.id })
             },
         };
         let create_batch_arm = quote! {
-            CreateBatch { parent_id, after, data } => {
+            CreateMultiple { parent_id, after, data } => {
                 if parent_id.is_some() {
                     return ::std::result::Result::Err(
                         ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
@@ -93,17 +93,17 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 }
                 let __created = __repo.#manager_ident().batch_add(data).await?;
                 let __ids = __created.into_iter().map(|x| x.id).collect::<::std::vec::Vec<_>>();
-                ::std::result::Result::Ok(__CrudOperationResult::CreatedBatch { created_ids: __ids })
+                ::std::result::Result::Ok(__CrudOperationResult::CreatedIds { created_ids: __ids })
             },
         };
         let read_arm = quote! {
             Read { id } => {
                 let __item = __repo.#manager_ident().get(id).await?;
-                ::std::result::Result::Ok(__CrudOperationResult::Read(__item))
+                ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
             },
         };
         let read_batch_arm = quote! {
-            ReadBatch { ids } => {
+            ReadMultiple { ids } => {
                 let __futs = ids.into_iter().map(|id| __repo.#manager_ident().get(id));
                 let __items = ::futures_util::future::try_join_all(__futs).await?;
                 ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
@@ -112,7 +112,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let update_arm = quote! {
             Update { item } => {
                 __repo.#manager_ident().update(&item).await?;
-                ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                ::std::result::Result::Ok(__CrudOperationResult::Unit)
             },
         };
         let delete_arm = if has_children {
@@ -124,7 +124,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     } else {
                         __repo.#manager_ident().delete_recursive(__item).await?;
                     }
-                    ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                    ::std::result::Result::Ok(__CrudOperationResult::Unit)
                 },
             }
         } else {
@@ -132,13 +132,13 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 Delete { id, non_recursive: _ } => {
                     let __item = __placeholder_item!(#ty_ident, id);
                     __repo.#manager_ident().delete(__item).await?;
-                    ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                    ::std::result::Result::Ok(__CrudOperationResult::Unit)
                 },
             }
         };
         let delete_batch_arm = if has_children {
             quote! {
-                DeleteBatch { ids, non_recursive } => {
+                DeleteMultiple { ids, non_recursive } => {
                     if !non_recursive {
                         return ::std::result::Result::Err(
                             ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
@@ -151,18 +151,18 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         .map(|id| __placeholder_item!(#ty_ident, id))
                         .collect::<::std::vec::Vec<_>>();
                     __repo.#manager_ident().batch_delete_non_recursive(__items).await?;
-                    ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                    ::std::result::Result::Ok(__CrudOperationResult::Unit)
                 },
             }
         } else {
             quote! {
-                DeleteBatch { ids, non_recursive: _ } => {
+                DeleteMultiple { ids, non_recursive: _ } => {
                     let __items = ids
                         .into_iter()
                         .map(|id| __placeholder_item!(#ty_ident, id))
                         .collect::<::std::vec::Vec<_>>();
                     __repo.#manager_ident().batch_delete(__items).await?;
-                    ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                    ::std::result::Result::Ok(__CrudOperationResult::Unit)
                 },
             }
         };
@@ -184,7 +184,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         );
                     }
                     __repo.#manager_ident().batch_delete_all_non_recursive().await?;
-                    ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                    ::std::result::Result::Ok(__CrudOperationResult::Unit)
                 },
             }
         } else {
@@ -198,7 +198,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         );
                     }
                     __repo.#manager_ident().batch_delete_all().await?;
-                    ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                    ::std::result::Result::Ok(__CrudOperationResult::Unit)
                 },
             }
         };
@@ -276,7 +276,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                         let __tmp_after: ::std::option::Option<#ty_ident> = after.map(|id| __placeholder_item!(#ty_ident, id));
                         let __created = __repo.#manager_ident().add(&__tmp_parent, data, __tmp_after.as_ref()).await?;
-                        ::std::result::Result::Ok(__CrudOperationResult::Created { created_id: __created.id })
+                        ::std::result::Result::Ok(__CrudOperationResult::CreatedId { created_id: __created.id })
                     },
                 }
             } else {
@@ -298,13 +298,13 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         }
                         let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                         let __created = __repo.#manager_ident().add(&__tmp_parent, data).await?;
-                        ::std::result::Result::Ok(__CrudOperationResult::Created { created_id: __created.id })
+                        ::std::result::Result::Ok(__CrudOperationResult::CreatedId { created_id: __created.id })
                     },
                 }
             };
             let create_batch_arm = if is_ordered {
                 quote! {
-                    CreateBatch { parent_id, after, data } => {
+                    CreateMultiple { parent_id, after, data } => {
                         let Some(parent_id) = parent_id else {
                             return ::std::result::Result::Err(
                                 ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
@@ -316,12 +316,12 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         let __tmp_after: ::std::option::Option<#ty_ident> = after.map(|id| __placeholder_item!(#ty_ident, id));
                         let __created = __repo.#manager_ident().batch_add(&__tmp_parent, data, __tmp_after.as_ref()).await?;
                         let __ids = __created.into_iter().map(|x| x.id).collect::<::std::vec::Vec<_>>();
-                        ::std::result::Result::Ok(__CrudOperationResult::CreatedBatch { created_ids: __ids })
+                        ::std::result::Result::Ok(__CrudOperationResult::CreatedIds { created_ids: __ids })
                     },
                 }
             } else {
                 quote! {
-                    CreateBatch { parent_id, after, data } => {
+                    CreateMultiple { parent_id, after, data } => {
                         let Some(parent_id) = parent_id else {
                             return ::std::result::Result::Err(
                                 ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
@@ -339,18 +339,18 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                         let __created = __repo.#manager_ident().batch_add(&__tmp_parent, data).await?;
                         let __ids = __created.into_iter().map(|x| x.id).collect::<::std::vec::Vec<_>>();
-                        ::std::result::Result::Ok(__CrudOperationResult::CreatedBatch { created_ids: __ids })
+                        ::std::result::Result::Ok(__CrudOperationResult::CreatedIds { created_ids: __ids })
                     },
                 }
             };
             let read_arm = quote! {
                 Read { id } => {
                     let __item = __repo.#manager_ident().get(id).await?;
-                    ::std::result::Result::Ok(__CrudOperationResult::Read(__item))
+                    ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
                 },
             };
             let read_batch_arm = quote! {
-                ReadBatch { ids } => {
+                ReadMultiple { ids } => {
                     let __futs = ids.into_iter().map(|id| __repo.#manager_ident().get(id));
                     let __items = ::futures_util::future::try_join_all(__futs).await?;
                     ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
@@ -359,7 +359,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             let update_arm = quote! {
                 Update { item } => {
                     __repo.#manager_ident().update(&item).await?;
-                    ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                    ::std::result::Result::Ok(__CrudOperationResult::Unit)
                 },
             };
             let delete_arm = if has_children {
@@ -371,7 +371,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         } else {
                             __repo.#manager_ident().delete_recursive(__item).await?;
                         }
-                        ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                        ::std::result::Result::Ok(__CrudOperationResult::Unit)
                     },
                 }
             } else {
@@ -379,13 +379,13 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     Delete { id, non_recursive: _ } => {
                         let __item = __placeholder_item!(#ty_ident, id);
                         __repo.#manager_ident().delete(__item).await?;
-                        ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                        ::std::result::Result::Ok(__CrudOperationResult::Unit)
                     },
                 }
             };
             let delete_batch_arm = if has_children {
                 quote! {
-                    DeleteBatch { ids, non_recursive } => {
+                    DeleteMultiple { ids, non_recursive } => {
                         if !non_recursive {
                             return ::std::result::Result::Err(
                                 ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
@@ -398,18 +398,18 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                             .map(|id| __placeholder_item!(#ty_ident, id))
                             .collect::<::std::vec::Vec<_>>();
                         __repo.#manager_ident().batch_delete_non_recursive(__items).await?;
-                        ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                        ::std::result::Result::Ok(__CrudOperationResult::Unit)
                     },
                 }
             } else {
                 quote! {
-                    DeleteBatch { ids, non_recursive: _ } => {
+                    DeleteMultiple { ids, non_recursive: _ } => {
                         let __items = ids
                             .into_iter()
                             .map(|id| __placeholder_item!(#ty_ident, id))
                             .collect::<::std::vec::Vec<_>>();
                         __repo.#manager_ident().batch_delete(__items).await?;
-                        ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                        ::std::result::Result::Ok(__CrudOperationResult::Unit)
                     },
                 }
             };
@@ -432,7 +432,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         }
                         let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                         __repo.#manager_ident().batch_delete_all_non_recursive(&__tmp_parent).await?;
-                        ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                        ::std::result::Result::Ok(__CrudOperationResult::Unit)
                     },
                 }
             } else {
@@ -447,7 +447,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         };
                         let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                         __repo.#manager_ident().batch_delete_all(&__tmp_parent).await?;
-                        ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                        ::std::result::Result::Ok(__CrudOperationResult::Unit)
                     },
                 }
             };
@@ -517,7 +517,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 };
                 let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                 __repo.#manager_ident().batch_delete_all(&__tmp_parent).await?;
-                ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                ::std::result::Result::Ok(__CrudOperationResult::Unit)
             },
         };
         let replace_all_arm = quote! {
@@ -531,17 +531,17 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 };
                 let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                 __repo.#manager_ident().batch_replace_all_ordered(&__tmp_parent, data).await?;
-                ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
+                ::std::result::Result::Ok(__CrudOperationResult::Unit)
             },
         };
         let unsupported_arm = quote! {
             Create { .. }
-            | CreateBatch { .. }
+            | CreateMultiple { .. }
             | Read { .. }
-            | ReadBatch { .. }
+            | ReadMultiple { .. }
             | Update { .. }
             | Delete { .. }
-            | DeleteBatch { .. } => {
+            | DeleteMultiple { .. } => {
                 ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!("operation not supported for batch collection {}", stringify!(#ty_ident))
