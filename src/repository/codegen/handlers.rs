@@ -132,6 +132,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     let handlers_iter = per_fn_handlers.iter();
     quote! {
         #[allow(unused_macros)]
+        #[macro_export]
         macro_rules! #macro_name_ident {
             ($($repo_init:tt)+) => {
                 macro_rules! __repo_init { () => { { $($repo_init)+ } } }
