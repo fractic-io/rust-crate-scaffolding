@@ -105,7 +105,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let read_batch_arm = quote! {
             ReadBatch { ids } => {
                 let __futs = ids.into_iter().map(|id| __repo.#manager_ident().get(id));
-                let __items = ::futures::future::try_join_all(__futs).await?;
+                let __items = ::futures_util::future::try_join_all(__futs).await?;
                 ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
             },
         };
@@ -148,7 +148,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     }
                     let __items = {
                         let __futs = ids.into_iter().map(|id| __repo.#manager_ident().get(id));
-                        ::futures::future::try_join_all(__futs).await?
+                        ::futures_util::future::try_join_all(__futs).await?
                     };
                     __repo.#manager_ident().batch_delete_non_recursive(__items).await?;
                     ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
@@ -159,7 +159,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 DeleteBatch { ids, non_recursive: _ } => {
                     let __items = {
                         let __futs = ids.into_iter().map(|id| __repo.#manager_ident().get(id));
-                        ::futures::future::try_join_all(__futs).await?
+                        ::futures_util::future::try_join_all(__futs).await?
                     };
                     __repo.#manager_ident().batch_delete(__items).await?;
                     ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
@@ -385,7 +385,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             let read_batch_arm = quote! {
                 ReadBatch { ids } => {
                     let __futs = ids.into_iter().map(|id| __repo.#manager_ident().get(id));
-                    let __items = ::futures::future::try_join_all(__futs).await?;
+                    let __items = ::futures_util::future::try_join_all(__futs).await?;
                     ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
                 },
             };
@@ -428,7 +428,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         }
                         let __items = {
                             let __futs = ids.into_iter().map(|id| __repo.#manager_ident().get(id));
-                            ::futures::future::try_join_all(__futs).await?
+                            ::futures_util::future::try_join_all(__futs).await?
                         };
                         __repo.#manager_ident().batch_delete_non_recursive(__items).await?;
                         ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
@@ -439,7 +439,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     DeleteBatch { ids, non_recursive: _ } => {
                         let __items = {
                             let __futs = ids.into_iter().map(|id| __repo.#manager_ident().get(id));
-                            ::futures::future::try_join_all(__futs).await?
+                            ::futures_util::future::try_join_all(__futs).await?
                         };
                         __repo.#manager_ident().batch_delete(__items).await?;
                         ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
