@@ -75,7 +75,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 ::std::result::Result::Ok(__CrudOperationResult::CreatedId { created_id: __created.id })
             },
         };
-        let create_batch_arm = quote! {
+        let create_multiple_arm = quote! {
             CreateMultiple { parent_id, after, data } => {
                 if parent_id.is_some() {
                     return ::std::result::Result::Err(
@@ -102,7 +102,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
             },
         };
-        let read_batch_arm = quote! {
+        let read_multiple_arm = quote! {
             ReadMultiple { ids } => {
                 let __futs = ids.into_iter().map(|id| __repo.#manager_ident().get(id));
                 let __items = ::futures_util::future::try_join_all(__futs).await?;
@@ -136,7 +136,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 },
             }
         };
-        let delete_batch_arm = if has_children {
+        let delete_multiple_arm = if has_children {
             quote! {
                 DeleteMultiple { ids, non_recursive } => {
                     if !non_recursive {
@@ -221,12 +221,12 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 match operation {
                     #list_arm
                     #create_arm
-                    #create_batch_arm
+                    #create_multiple_arm
                     #read_arm
-                    #read_batch_arm
+                    #read_multiple_arm
                     #update_arm
                     #delete_arm
-                    #delete_batch_arm
+                    #delete_multiple_arm
                     #delete_all_arm
                     #replace_all_arm
                 }
@@ -304,7 +304,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     },
                 }
             };
-            let create_batch_arm = if is_ordered {
+            let create_multiple_arm = if is_ordered {
                 quote! {
                     CreateMultiple { parent_id, after, data } => {
                         let Some(parent_id) = parent_id else {
@@ -351,7 +351,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
                 },
             };
-            let read_batch_arm = quote! {
+            let read_multiple_arm = quote! {
                 ReadMultiple { ids } => {
                     let __futs = ids.into_iter().map(|id| __repo.#manager_ident().get(id));
                     let __items = ::futures_util::future::try_join_all(__futs).await?;
@@ -385,7 +385,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     },
                 }
             };
-            let delete_batch_arm = if has_children {
+            let delete_multiple_arm = if has_children {
                 quote! {
                     DeleteMultiple { ids, non_recursive } => {
                         if !non_recursive {
@@ -472,12 +472,12 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     match operation {
                         #list_arm
                         #create_arm
-                        #create_batch_arm
+                        #create_multiple_arm
                         #read_arm
-                        #read_batch_arm
+                        #read_multiple_arm
                         #update_arm
                         #delete_arm
-                        #delete_batch_arm
+                        #delete_multiple_arm
                         #delete_all_arm
                         #replace_all_arm
                     }
