@@ -38,7 +38,6 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     // Build handlers for root types.
     let root_handlers = model.root_objects.iter().map(|root| {
         let ty_ident = &root.name;
-        let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
         let manager_ident = method_ident_for("manage", ty_ident);
         let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
         let has_children = root.has_children();
@@ -119,7 +118,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         let delete_arm = if has_children {
             quote! {
                 Delete { id, non_recursive } => {
-                    let __item = __dummy_item!(#ty_ident, #ty_data_ident, id);
+                    let __item = __placeholder_item!(#ty_ident, id);
                     if non_recursive {
                         __repo.#manager_ident().delete_non_recursive(__item).await?;
                     } else {
@@ -131,7 +130,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         } else {
             quote! {
                 Delete { id, non_recursive: _ } => {
-                    let __item = __dummy_item!(#ty_ident, #ty_data_ident, id);
+                    let __item = __placeholder_item!(#ty_ident, id);
                     __repo.#manager_ident().delete(__item).await?;
                     ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
                 },
@@ -149,7 +148,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     }
                     let __items = ids
                         .into_iter()
-                        .map(|id| __dummy_item!(#ty_ident, #ty_data_ident, id))
+                        .map(|id| __placeholder_item!(#ty_ident, id))
                         .collect::<::std::vec::Vec<_>>();
                     __repo.#manager_ident().batch_delete_non_recursive(__items).await?;
                     ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
@@ -160,7 +159,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 DeleteBatch { ids, non_recursive: _ } => {
                     let __items = ids
                         .into_iter()
-                        .map(|id| __dummy_item!(#ty_ident, #ty_data_ident, id))
+                        .map(|id| __placeholder_item!(#ty_ident, id))
                         .collect::<::std::vec::Vec<_>>();
                     __repo.#manager_ident().batch_delete(__items).await?;
                     ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
@@ -243,14 +242,9 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         .chain(model.unordered_objects.iter().map(|child| (child, false)))
         .map(|(child, is_ordered)| {
             let ty_ident = &child.name;
-            let (parent_ident, parent_data_ident) = {
-                // These idents are used only to create placeholder objects, so
-                // we can use any valid parent type.
-                let p = &child.parents[0];
-                let d = Ident::new(&format!("{}Data", p), p.span());
-                (p, d)
-            };
-            let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
+            // These idents are used only to create placeholder objects, so we
+            // can use any valid parent type.
+            let parent_ident = &child.parents[0];
             let manager_ident = method_ident_for("manage", ty_ident);
             let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
             let has_children = child.has_children();
@@ -264,7 +258,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                             ).into()
                         );
                     };
-                    let __tmp_parent = __dummy_item!(#parent_ident, #parent_data_ident, parent_id);
+                    let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                     let __items = __repo.#manager_ident().query_all(&__tmp_parent).await?;
                     ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
                 },
@@ -279,11 +273,9 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                                 ).into()
                             );
                         };
-                        let __tmp_parent = __dummy_item!(#parent_ident, #parent_data_ident, parent_id);
-                        let mut __tmp_after: ::std::option::Option<#ty_ident> =
-                            after.map(|id| __dummy_item!(#ty_ident, #ty_data_ident, id));
-                        let __after_ref: ::std::option::Option<& #ty_ident> = __tmp_after.as_ref();
-                        let __created = __repo.#manager_ident().add(&__tmp_parent, data, __after_ref).await?;
+                        let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
+                        let __tmp_after: ::std::option::Option<#ty_ident> = after.map(|id| __placeholder_item!(#ty_ident, id));
+                        let __created = __repo.#manager_ident().add(&__tmp_parent, data, __tmp_after.as_ref()).await?;
                         ::std::result::Result::Ok(__CrudOperationResult::Created { created_id: __created.id })
                     },
                 }
@@ -304,7 +296,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                                 ).into()
                             );
                         }
-                        let __tmp_parent = __dummy_item!(#parent_ident, #parent_data_ident, parent_id);
+                        let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                         let __created = __repo.#manager_ident().add(&__tmp_parent, data).await?;
                         ::std::result::Result::Ok(__CrudOperationResult::Created { created_id: __created.id })
                     },
@@ -320,11 +312,9 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                                 ).into()
                             );
                         };
-                        let __tmp_parent = __dummy_item!(#parent_ident, #parent_data_ident, parent_id);
-                        let mut __tmp_after: ::std::option::Option<#ty_ident> =
-                            after.map(|id| __dummy_item!(#ty_ident, #ty_data_ident, id));
-                        let __after_ref: ::std::option::Option<& #ty_ident> = __tmp_after.as_ref();
-                        let __created = __repo.#manager_ident().batch_add(&__tmp_parent, data, __after_ref).await?;
+                        let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
+                        let __tmp_after: ::std::option::Option<#ty_ident> = after.map(|id| __placeholder_item!(#ty_ident, id));
+                        let __created = __repo.#manager_ident().batch_add(&__tmp_parent, data, __tmp_after.as_ref()).await?;
                         let __ids = __created.into_iter().map(|x| x.id).collect::<::std::vec::Vec<_>>();
                         ::std::result::Result::Ok(__CrudOperationResult::CreatedBatch { created_ids: __ids })
                     },
@@ -346,7 +336,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                                 ).into()
                             );
                         }
-                        let __tmp_parent = __dummy_item!(#parent_ident, #parent_data_ident, parent_id);
+                        let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                         let __created = __repo.#manager_ident().batch_add(&__tmp_parent, data).await?;
                         let __ids = __created.into_iter().map(|x| x.id).collect::<::std::vec::Vec<_>>();
                         ::std::result::Result::Ok(__CrudOperationResult::CreatedBatch { created_ids: __ids })
@@ -375,7 +365,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             let delete_arm = if has_children {
                 quote! {
                     Delete { id, non_recursive } => {
-                        let __item = __dummy_item!(#ty_ident, #ty_data_ident, id);
+                        let __item = __placeholder_item!(#ty_ident, id);
                         if non_recursive {
                             __repo.#manager_ident().delete_non_recursive(__item).await?;
                         } else {
@@ -387,7 +377,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             } else {
                 quote! {
                     Delete { id, non_recursive: _ } => {
-                        let __item = __dummy_item!(#ty_ident, #ty_data_ident, id);
+                        let __item = __placeholder_item!(#ty_ident, id);
                         __repo.#manager_ident().delete(__item).await?;
                         ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
                     },
@@ -405,7 +395,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         }
                         let __items = ids
                             .into_iter()
-                            .map(|id| __dummy_item!(#ty_ident, #ty_data_ident, id))
+                            .map(|id| __placeholder_item!(#ty_ident, id))
                             .collect::<::std::vec::Vec<_>>();
                         __repo.#manager_ident().batch_delete_non_recursive(__items).await?;
                         ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
@@ -416,7 +406,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     DeleteBatch { ids, non_recursive: _ } => {
                         let __items = ids
                             .into_iter()
-                            .map(|id| __dummy_item!(#ty_ident, #ty_data_ident, id))
+                            .map(|id| __placeholder_item!(#ty_ident, id))
                             .collect::<::std::vec::Vec<_>>();
                         __repo.#manager_ident().batch_delete(__items).await?;
                         ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
@@ -440,7 +430,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                                 ).into()
                             );
                         }
-                        let __tmp_parent = __dummy_item!(#parent_ident, #parent_data_ident, parent_id);
+                        let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                         __repo.#manager_ident().batch_delete_all_non_recursive(&__tmp_parent).await?;
                         ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
                     },
@@ -455,7 +445,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                                 ).into()
                             );
                         };
-                        let __tmp_parent = __dummy_item!(#parent_ident, #parent_data_ident, parent_id);
+                        let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                         __repo.#manager_ident().batch_delete_all(&__tmp_parent).await?;
                         ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
                     },
@@ -496,13 +486,9 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     // Build handlers for batch children.
     let batch_handlers = model.batch_objects.iter().map(|batch| {
         let ty_ident = &batch.name;
-        let (parent_ident, parent_data_ident) = {
-            // These idents are used only to create placeholder objects, so we
-            // can use any valid parent type.
-            let p = &batch.parents[0];
-            let d = Ident::new(&format!("{}Data", p), p.span());
-            (p, d)
-        };
+        // These idents are used only to create placeholder objects, so we can
+        // use any valid parent type.
+        let parent_ident = &batch.parents[0];
         let manager_ident = method_ident_for("manage", ty_ident);
         let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
 
@@ -515,7 +501,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         ).into()
                     );
                 };
-                let __tmp_parent = __dummy_item!(#parent_ident, #parent_data_ident, parent_id);
+                let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                 let __items = __repo.#manager_ident().query_all(&__tmp_parent).await?;
                 ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
             },
@@ -529,7 +515,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         ).into()
                     );
                 };
-                let __tmp_parent = __dummy_item!(#parent_ident, #parent_data_ident, parent_id);
+                let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                 __repo.#manager_ident().batch_delete_all(&__tmp_parent).await?;
                 ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
             },
@@ -543,7 +529,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         ).into()
                     );
                 };
-                let __tmp_parent = __dummy_item!(#parent_ident, #parent_data_ident, parent_id);
+                let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
                 __repo.#manager_ident().batch_replace_all_ordered(&__tmp_parent, data).await?;
                 ::std::result::Result::Ok(__CrudOperationResult::Unit(()))
             },
@@ -600,14 +586,14 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 ///
                 /// This helper simply constructs an empty object of type $ty,
                 /// with no data except the provided ID.
-                macro_rules! __dummy_item {
-                    ($ty:ty, $data_ty:ty, $id:expr) => {
+                macro_rules! __placeholder_item {
+                    ($ty:path, $id:expr) => {{
                         $ty {
                             id: $id,
-                            data: <$data_ty>::default(),
-                            auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+                            data: ::core::default::Default::default(),
+                            auto_fields: ::core::default::Default::default(),
                         }
-                    };
+                    }};
                 }
 
                 #crud_result_enum
