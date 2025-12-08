@@ -55,6 +55,100 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         }
     }).collect::<(Vec<_>, Vec<_>, Vec<_>)>();
 
+    // Fields and initializers for singleton roots/children.
+    let mut singleton_root_fields = Vec::new();
+    let mut singleton_root_inits = Vec::new();
+    let mut singleton_root_trait_impls = Vec::new();
+    let mut singleton_child_fields = Vec::new();
+    let mut singleton_child_inits = Vec::new();
+    let mut singleton_child_trait_impls = Vec::new();
+    for singleton in &model.singleton_objects {
+        let field_ident = method_ident_for("manage", &singleton.name);
+        let method_ident = field_ident.clone();
+        let ty_ident = &singleton.name;
+        match &singleton.parents {
+            Some(_) => {
+                singleton_child_fields.push(quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageSingletonChild<#ty_ident>
+                });
+                singleton_child_inits.push(quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageSingletonChild::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                });
+                singleton_child_trait_impls.push(quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageSingletonChild<#ty_ident> {
+                        &self.#method_ident
+                    }
+                });
+            }
+            None => {
+                singleton_root_fields.push(quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageRootSingleton<#ty_ident>
+                });
+                singleton_root_inits.push(quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageRootSingleton::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                });
+                singleton_root_trait_impls.push(quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageRootSingleton<#ty_ident> {
+                        &self.#method_ident
+                    }
+                });
+            }
+        }
+    }
+
+    // Fields and initializers for singleton family roots/children.
+    let mut singleton_family_root_fields = Vec::new();
+    let mut singleton_family_root_inits = Vec::new();
+    let mut singleton_family_root_trait_impls = Vec::new();
+    let mut singleton_family_child_fields = Vec::new();
+    let mut singleton_family_child_inits = Vec::new();
+    let mut singleton_family_child_trait_impls = Vec::new();
+    for singleton_family in &model.singleton_family_objects {
+        let field_ident = method_ident_for("manage", &singleton_family.name);
+        let method_ident = field_ident.clone();
+        let ty_ident = &singleton_family.name;
+        match &singleton_family.parents {
+            Some(_) => {
+                singleton_family_child_fields.push(quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageSingletonFamilyChild<#ty_ident>
+                });
+                singleton_family_child_inits.push(quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageSingletonFamilyChild::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                });
+                singleton_family_child_trait_impls.push(quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageSingletonFamilyChild<#ty_ident> {
+                        &self.#method_ident
+                    }
+                });
+            }
+            None => {
+                singleton_family_root_fields.push(quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageRootSingletonFamily<#ty_ident>
+                });
+                singleton_family_root_inits.push(quote! {
+                    #field_ident: ::fractic_aws_dynamo::ext::crud::ManageRootSingletonFamily::new(
+                        dynamo_util.clone(),
+                        crud_algorithms.clone(),
+                    )
+                });
+                singleton_family_root_trait_impls.push(quote! {
+                    fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageRootSingletonFamily<#ty_ident> {
+                        &self.#method_ident
+                    }
+                });
+            }
+        }
+    }
+
     // Fields, inits, trait impls for ordered children.
     let (ordered_child_fields, ordered_child_inits, ordered_child_trait_impls) = model.ordered_objects.iter().map(|child| {
         let field_ident = method_ident_for("manage", &child.name);
@@ -165,9 +259,13 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     let out = quote! {
         pub struct #impl_struct_ident {
             #(#root_fields,)*
+            #(#singleton_root_fields,)*
+            #(#singleton_family_root_fields,)*
             #(#ordered_child_fields,)*
             #(#unordered_child_fields,)*
             #(#batch_fields,)*
+            #(#singleton_child_fields,)*
+            #(#singleton_family_child_fields,)*
         }
 
         impl #impl_struct_ident {
@@ -176,18 +274,26 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 let crud_algorithms = ::std::sync::Arc::new(<$crud_algorithms>::new(dynamo_util.clone()));
                 Ok(Self {
                     #(#root_inits,)*
+                    #(#singleton_root_inits,)*
+                    #(#singleton_family_root_inits,)*
                     #(#ordered_child_inits,)*
                     #(#unordered_child_inits,)*
                     #(#batch_inits,)*
+                    #(#singleton_child_inits,)*
+                    #(#singleton_family_child_inits,)*
                 })
             }
         }
 
         impl #repo_name for #impl_struct_ident {
             #(#root_trait_impls)*
+            #(#singleton_root_trait_impls)*
+            #(#singleton_family_root_trait_impls)*
             #(#ordered_child_trait_impls)*
             #(#unordered_child_trait_impls)*
             #(#batch_trait_impls)*
+            #(#singleton_child_trait_impls)*
+            #(#singleton_family_child_trait_impls)*
         }
     };
     let out_clone = out.clone();

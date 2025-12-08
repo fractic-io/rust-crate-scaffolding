@@ -51,11 +51,13 @@ pub enum ObjectKind {
     Ordered,
     Unordered,
     Batch,
+    Singleton,
+    SingletonFamily,
 }
 
 impl ObjectKind {
     fn expected_list() -> &'static str {
-        "`root`, `ordered`, `unordered`, or `batch`"
+        "`root`, `ordered`, `unordered`, `batch`, `singleton`, or `singleton_family`"
     }
 
     fn from_str(s: &str) -> Option<Self> {
@@ -64,6 +66,8 @@ impl ObjectKind {
             "ordered" => Some(Self::Ordered),
             "unordered" => Some(Self::Unordered),
             "batch" => Some(Self::Batch),
+            "singleton" => Some(Self::Singleton),
+            "singleton_family" => Some(Self::SingletonFamily),
             _ => None,
         }
     }
@@ -109,6 +113,8 @@ impl Parse for ObjectDef {
         let mut ordered_children: Option<Vec<Ident>> = None;
         let mut unordered_children: Option<Vec<Ident>> = None;
         let mut batch_children: Option<Vec<Ident>> = None;
+        let mut singleton_children: Option<Vec<Ident>> = None;
+        let mut singleton_family_children: Option<Vec<Ident>> = None;
 
         while !content.is_empty() {
             let key: Ident = content.parse()?;
@@ -147,12 +153,31 @@ impl Parse for ObjectDef {
                     }
                     batch_children = Some(parse_ident_list(&content)?);
                 }
+                "singleton_children" => {
+                    if singleton_children.is_some() {
+                        return Err(Error::new(
+                            key.span(),
+                            "duplicate `singleton_children` property",
+                        ));
+                    }
+                    singleton_children = Some(parse_ident_list(&content)?);
+                }
+                "singleton_family_children" => {
+                    if singleton_family_children.is_some() {
+                        return Err(Error::new(
+                            key.span(),
+                            "duplicate `singleton_family_children` property",
+                        ));
+                    }
+                    singleton_family_children = Some(parse_ident_list(&content)?);
+                }
                 _ => {
                     return Err(Error::new(
                         key.span(),
                         format!(
                             "unknown property `{}`; expected one of: `parent`, \
-                             `ordered_children`, `unordered_children`, `batch_children`",
+                             `ordered_children`, `unordered_children`, `batch_children`, \
+                             `singleton_children`, `singleton_family_children`",
                             key
                         ),
                     ));
@@ -173,6 +198,8 @@ impl Parse for ObjectDef {
                 ordered_children: ordered_children.unwrap_or_default(),
                 unordered_children: unordered_children.unwrap_or_default(),
                 batch_children: batch_children.unwrap_or_default(),
+                singleton_children: singleton_children.unwrap_or_default(),
+                singleton_family_children: singleton_family_children.unwrap_or_default(),
             },
         })
     }
@@ -184,6 +211,8 @@ pub struct ObjectPropsRaw {
     pub ordered_children: Vec<Ident>,
     pub unordered_children: Vec<Ident>,
     pub batch_children: Vec<Ident>,
+    pub singleton_children: Vec<Ident>,
+    pub singleton_family_children: Vec<Ident>,
 }
 
 fn parse_ident_list(input: ParseStream<'_>) -> Result<Vec<Ident>> {

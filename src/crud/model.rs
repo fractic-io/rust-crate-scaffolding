@@ -9,6 +9,8 @@ pub struct ConfigModel {
     pub ordered_objects: Vec<ChildDef>,
     pub unordered_objects: Vec<ChildDef>,
     pub batch_objects: Vec<BatchDef>,
+    pub singleton_objects: Vec<SingletonDef>,
+    pub singleton_family_objects: Vec<SingletonFamilyDef>,
 }
 
 #[derive(Debug)]
@@ -17,6 +19,8 @@ pub struct RootDef {
     pub ordered_children: Vec<Ident>,
     pub unordered_children: Vec<Ident>,
     pub batch_children: Vec<Ident>,
+    pub singleton_children: Vec<Ident>,
+    pub singleton_family_children: Vec<Ident>,
 }
 
 #[derive(Debug)]
@@ -26,12 +30,26 @@ pub struct ChildDef {
     pub ordered_children: Vec<Ident>,
     pub unordered_children: Vec<Ident>,
     pub batch_children: Vec<Ident>,
+    pub singleton_children: Vec<Ident>,
+    pub singleton_family_children: Vec<Ident>,
 }
 
 #[derive(Debug)]
 pub struct BatchDef {
     pub name: Ident,
     pub parents: Vec<Ident>,
+}
+
+#[derive(Debug)]
+pub struct SingletonDef {
+    pub name: Ident,
+    pub parents: Option<Vec<Ident>>,
+}
+
+#[derive(Debug)]
+pub struct SingletonFamilyDef {
+    pub name: Ident,
+    pub parents: Option<Vec<Ident>>,
 }
 
 impl TryFrom<ast::ConfigAst> for ConfigModel {
@@ -42,6 +60,8 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
         let mut ordered_objects = Vec::new();
         let mut unordered_objects = Vec::new();
         let mut batch_objects = Vec::new();
+        let mut singleton_objects = Vec::new();
+        let mut singleton_family_objects = Vec::new();
 
         for obj in value.objects {
             match obj.kind {
@@ -57,6 +77,8 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         ordered_children: obj.props.ordered_children,
                         unordered_children: obj.props.unordered_children,
                         batch_children: obj.props.batch_children,
+                        singleton_children: obj.props.singleton_children,
+                        singleton_family_children: obj.props.singleton_family_children,
                     });
                 }
                 ast::ObjectKind::Ordered => {
@@ -75,6 +97,8 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         ordered_children: obj.props.ordered_children,
                         unordered_children: obj.props.unordered_children,
                         batch_children: obj.props.batch_children,
+                        singleton_children: obj.props.singleton_children,
+                        singleton_family_children: obj.props.singleton_family_children,
                     });
                 }
                 ast::ObjectKind::Unordered => {
@@ -93,6 +117,8 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         ordered_children: obj.props.ordered_children,
                         unordered_children: obj.props.unordered_children,
                         batch_children: obj.props.batch_children,
+                        singleton_children: obj.props.singleton_children,
+                        singleton_family_children: obj.props.singleton_family_children,
                     });
                 }
                 ast::ObjectKind::Batch => {
@@ -109,16 +135,75 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                     if !obj.props.ordered_children.is_empty()
                         || !obj.props.unordered_children.is_empty()
                         || !obj.props.batch_children.is_empty()
+                        || !obj.props.singleton_children.is_empty()
+                        || !obj.props.singleton_family_children.is_empty()
                     {
                         return Err(Error::new(
                             obj.name.span(),
                             "`batch` objects cannot have `ordered_children`, \
-                             `unordered_children`, or `batch_children`",
+                             `unordered_children`, `batch_children`, `singleton_children`, or \
+                             `singleton_family_children`",
                         ));
                     }
                     batch_objects.push(BatchDef {
                         name: obj.name,
                         parents,
+                    });
+                }
+                ast::ObjectKind::Singleton => {
+                    if !obj.props.ordered_children.is_empty()
+                        || !obj.props.unordered_children.is_empty()
+                        || !obj.props.batch_children.is_empty()
+                        || !obj.props.singleton_children.is_empty()
+                        || !obj.props.singleton_family_children.is_empty()
+                    {
+                        return Err(Error::new(
+                            obj.name.span(),
+                            "`singleton` objects cannot have child properties",
+                        ));
+                    }
+
+                    if let Some(ref parents) = obj.props.parent {
+                        if parents.is_empty() {
+                            return Err(Error::new(
+                                obj.name.span(),
+                                "`singleton` objects require at least one `parent` when `parent` \
+                                 is specified",
+                            ));
+                        }
+                    }
+
+                    singleton_objects.push(SingletonDef {
+                        name: obj.name,
+                        parents: obj.props.parent,
+                    });
+                }
+                ast::ObjectKind::SingletonFamily => {
+                    if !obj.props.ordered_children.is_empty()
+                        || !obj.props.unordered_children.is_empty()
+                        || !obj.props.batch_children.is_empty()
+                        || !obj.props.singleton_children.is_empty()
+                        || !obj.props.singleton_family_children.is_empty()
+                    {
+                        return Err(Error::new(
+                            obj.name.span(),
+                            "`singleton_family` objects cannot have child properties",
+                        ));
+                    }
+
+                    if let Some(ref parents) = obj.props.parent {
+                        if parents.is_empty() {
+                            return Err(Error::new(
+                                obj.name.span(),
+                                "`singleton_family` objects require at least one `parent` when \
+                                 `parent` is specified",
+                            ));
+                        }
+                    }
+
+                    singleton_family_objects.push(SingletonFamilyDef {
+                        name: obj.name,
+                        parents: obj.props.parent,
                     });
                 }
             }
@@ -130,6 +215,8 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
             ordered_objects,
             unordered_objects,
             batch_objects,
+            singleton_objects,
+            singleton_family_objects,
         })
     }
 }
@@ -139,6 +226,8 @@ impl RootDef {
         !self.ordered_children.is_empty()
             || !self.unordered_children.is_empty()
             || !self.batch_children.is_empty()
+            || !self.singleton_children.is_empty()
+            || !self.singleton_family_children.is_empty()
     }
 }
 
@@ -147,5 +236,7 @@ impl ChildDef {
         !self.ordered_children.is_empty()
             || !self.unordered_children.is_empty()
             || !self.batch_children.is_empty()
+            || !self.singleton_children.is_empty()
+            || !self.singleton_family_children.is_empty()
     }
 }

@@ -72,6 +72,58 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         )
     }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
+    // Methods for singleton objects.
+    let mut singleton_parent_of_impls = Vec::new();
+    let mut singleton_root_manage_methods = Vec::new();
+    let mut singleton_child_manage_methods = Vec::new();
+    for singleton in &model.singleton_objects {
+        let type_ident = &singleton.name;
+        let method_ident = method_ident_for("manage", type_ident);
+        if let Some(parents) = &singleton.parents {
+            let parent_impls = parents.iter().map(|parent_ident| {
+                quote! {
+                    impl ::fractic_aws_dynamo::ext::crud::ParentOf<#type_ident> for #parent_ident { }
+                }
+            });
+            singleton_parent_of_impls.push(quote! {
+                #(#parent_impls)*
+            });
+            singleton_child_manage_methods.push(quote! {
+                fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageSingletonChild<#type_ident>;
+            });
+        } else {
+            singleton_root_manage_methods.push(quote! {
+                fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageRootSingleton<#type_ident>;
+            });
+        }
+    }
+
+    // Methods for singleton family objects.
+    let mut singleton_family_parent_of_impls = Vec::new();
+    let mut singleton_family_root_manage_methods = Vec::new();
+    let mut singleton_family_child_manage_methods = Vec::new();
+    for singleton_family in &model.singleton_family_objects {
+        let type_ident = &singleton_family.name;
+        let method_ident = method_ident_for("manage", type_ident);
+        if let Some(parents) = &singleton_family.parents {
+            let parent_impls = parents.iter().map(|parent_ident| {
+                quote! {
+                    impl ::fractic_aws_dynamo::ext::crud::ParentOf<#type_ident> for #parent_ident { }
+                }
+            });
+            singleton_family_parent_of_impls.push(quote! {
+                #(#parent_impls)*
+            });
+            singleton_family_child_manage_methods.push(quote! {
+                fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageSingletonFamilyChild<#type_ident>;
+            });
+        } else {
+            singleton_family_root_manage_methods.push(quote! {
+                fn #method_ident(&self) -> & ::fractic_aws_dynamo::ext::crud::ManageRootSingletonFamily<#type_ident>;
+            });
+        }
+    }
+
     // Methods for batch children.
     let (batch_parent_of_impls, batch_manage_methods) = model.batch_objects.iter().map(|child| {
         let type_ident = &child.name;
@@ -95,12 +147,18 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         #(#ordered_parent_of_impls)*
         #(#unordered_parent_of_impls)*
         #(#batch_parent_of_impls)*
+        #(#singleton_parent_of_impls)*
+        #(#singleton_family_parent_of_impls)*
 
         pub trait #repo_name: ::std::marker::Send + ::std::marker::Sync {
             #(#root_manage_methods)*
+            #(#singleton_root_manage_methods)*
+            #(#singleton_family_root_manage_methods)*
             #(#ordered_manage_methods)*
             #(#unordered_manage_methods)*
             #(#batch_manage_methods)*
+            #(#singleton_child_manage_methods)*
+            #(#singleton_family_child_manage_methods)*
         }
     }
 }
