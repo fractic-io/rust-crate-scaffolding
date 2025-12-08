@@ -3,7 +3,7 @@ use quote::quote;
 use syn::Ident;
 
 use crate::{
-    crud::model::{BatchDef, CollectionDef, ConfigModel},
+    crud::model::{BatchDef, ConfigModel, StandardDef},
     helpers::to_snake_case,
 };
 
@@ -455,7 +455,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
 }
 
 fn build_collection_root_handler(
-    root: &CollectionDef,
+    root: &StandardDef,
     is_ordered: bool,
     repo_name: &Ident,
 ) -> TokenStream {

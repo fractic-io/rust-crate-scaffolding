@@ -6,15 +6,15 @@ use crate::crud::ast;
 #[derive(Debug)]
 pub struct ConfigModel {
     pub repository_name: Ident,
-    pub ordered_objects: Vec<CollectionDef>,
-    pub unordered_objects: Vec<CollectionDef>,
+    pub ordered_objects: Vec<StandardDef>,
+    pub unordered_objects: Vec<StandardDef>,
     pub batch_objects: Vec<BatchDef>,
     pub singleton_objects: Vec<SingletonDef>,
     pub singleton_family_objects: Vec<SingletonFamilyDef>,
 }
 
 #[derive(Debug)]
-pub struct CollectionDef {
+pub struct StandardDef {
     pub name: Ident,
     pub parents: Option<Vec<Ident>>,
     pub ordered_children: Vec<Ident>,
@@ -71,7 +71,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                             "`root` objects cannot have a `parent` property",
                         ));
                     }
-                    unordered_objects.push(CollectionDef {
+                    unordered_objects.push(StandardDef {
                         name,
                         parents: None,
                         ordered_children,
@@ -83,7 +83,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                 }
                 ast::ObjectKind::Ordered => {
                     let parents = validate_parents(name.span(), "`ordered`", parent)?;
-                    ordered_objects.push(CollectionDef {
+                    ordered_objects.push(StandardDef {
                         name,
                         parents,
                         ordered_children,
@@ -95,7 +95,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                 }
                 ast::ObjectKind::Unordered => {
                     let parents = validate_parents(name.span(), "`unordered`", parent)?;
-                    unordered_objects.push(CollectionDef {
+                    unordered_objects.push(StandardDef {
                         name,
                         parents,
                         ordered_children,
@@ -192,7 +192,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
     }
 }
 
-impl CollectionDef {
+impl StandardDef {
     pub fn has_children(&self) -> bool {
         !self.ordered_children.is_empty()
             || !self.unordered_children.is_empty()

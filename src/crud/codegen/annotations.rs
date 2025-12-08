@@ -3,7 +3,7 @@ use quote::quote;
 use syn::Ident;
 
 use crate::{
-    crud::model::{BatchDef, CollectionDef, ConfigModel},
+    crud::model::{BatchDef, ConfigModel, StandardDef},
     helpers::to_snake_case,
 };
 
@@ -345,7 +345,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     }
 }
 
-fn build_collection_root_item(root: &CollectionDef, is_ordered: bool) -> TokenStream {
+fn build_collection_root_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
     let ty_ident = &root.name;
     let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
     let manager_ident = method_ident_for("manage", &root.name);
