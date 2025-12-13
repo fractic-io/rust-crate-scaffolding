@@ -1,8 +1,17 @@
+//! NOTE: These annotations currently include support for root ordered / batch
+//! items, even though fractic-aws-dynamo does not yet actually have manager
+//! types (CRUD wrappers) for these (for ex. ManageRootOrdered does not exist).
+
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::Ident;
 
-use crate::{crud::model::ConfigModel, helpers::to_snake_case};
+use crate::{
+    crud::model::{
+        BatchDef, ConfigModel, HasParents, SingletonDef, SingletonFamilyDef, StandardDef,
+    },
+    helpers::to_snake_case,
+};
 
 pub fn generate(model: &ConfigModel) -> TokenStream {
     let repo_name = &model.repository_name;
@@ -12,98 +21,226 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         repo_name.span(),
     );
 
-    // Build trait + impl blocks for root objects.
-    let root_items: ::std::vec::Vec<TokenStream> = model.root_objects.iter().map(|root| {
-        let ty_ident = &root.name;
-        let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
-        let manager_ident = method_ident_for("manage", &root.name);
+    let root_items: Vec<TokenStream> = model
+        .ordered_objects
+        .iter()
+        .filter(|root| root.parents.is_none())
+        .map(|root| gen_root_standard_item(root, true))
+        .chain(
+            model
+                .unordered_objects
+                .iter()
+                .filter(|root| root.parents.is_none())
+                .map(|root| gen_root_standard_item(root, false)),
+        )
+        .chain(
+            model
+                .batch_objects
+                .iter()
+                .filter(|batch| batch.parents.is_none())
+                .map(gen_root_batch_item),
+        )
+        .chain(
+            model
+                .singleton_objects
+                .iter()
+                .filter(|singleton| singleton.parents.is_none())
+                .map(gen_root_singleton_item),
+        )
+        .chain(
+            model
+                .singleton_family_objects
+                .iter()
+                .filter(|singleton_family| singleton_family.parents.is_none())
+                .map(gen_root_singleton_family_item),
+        )
+        .collect();
 
-        let (basic_methods, basic_impls) = {
-            (
-                quote! {
-                    async fn get(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
-                    async fn add(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
-                    async fn batch_add(ctx: __ctx!(), data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
-                    async fn update(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
-                },
-                quote! {
-                    async fn get(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().get(id).await
-                    }
-                    async fn add(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().add(data).await
-                    }
-                    async fn batch_add(ctx: __ctx!(), data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().batch_add(data).await
-                    }
-                    async fn update(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().update(self).await
-                    }
+    let child_items: Vec<TokenStream> = {
+        fn parent_of(child: &impl HasParents) -> &Ident {
+            // The parent ident is used only to create dummy objects for unchecked
+            // methods. Since the dummy object is only needed to satisfy the type
+            // system, we can use any valid parent type (so use the first one).
+            child
+                .parents()
+                .and_then(|p| p.first())
+                .expect("child items should be verified to have at least one parent")
+        }
+        model
+            .ordered_objects
+            .iter()
+            .filter(|child| child.parents.is_some())
+            .map(|child| gen_child_standard_item(child, parent_of(child), true))
+            .chain(
+                model
+                    .unordered_objects
+                    .iter()
+                    .filter(|child| child.parents.is_some())
+                    .map(|child| gen_child_standard_item(child, parent_of(child), false)),
+            )
+            .chain(
+                model
+                    .batch_objects
+                    .iter()
+                    .filter(|child| child.parents.is_some())
+                    .map(|child| gen_child_batch_item(child, parent_of(child))),
+            )
+            .chain(
+                model
+                    .singleton_objects
+                    .iter()
+                    .filter(|child| child.parents.is_some())
+                    .map(|child| gen_child_singleton_item(child, parent_of(child))),
+            )
+            .chain(
+                model
+                    .singleton_family_objects
+                    .iter()
+                    .filter(|child| child.parents.is_some())
+                    .map(|child| gen_child_singleton_family_item(child, parent_of(child))),
+            )
+            .collect()
+    };
+
+    let root_items_clone = root_items.clone();
+    let child_items_clone = child_items.clone();
+
+    quote! {
+        #[allow(unused_macros)]
+        #[macro_export]
+        macro_rules! #macro_name_ident {
+            (dyn $ctx_view:path => $ctx_repo_accessor:ident) => {
+                // Local helper for the context type when a trait is provided.
+                macro_rules! __ctx { () => { &impl $ctx_view } }
+                // Roots:
+                #(#root_items)*
+                // Children:
+                #(#child_items)*
+            };
+            ($ctx:ty => $ctx_repo_accessor:ident) => {
+                // Local helper for the context type when a concrete type is
+                // provided.
+                macro_rules! __ctx { () => { & $ctx } }
+                // Roots:
+                #(#root_items_clone)*
+                // Children:
+                #(#child_items_clone)*
+            };
+        }
+
+        #[allow(unused_imports)]
+        pub(crate) use #macro_name_ident;
+    }
+}
+
+fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
+    let ty_ident = &root.name;
+    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
+    let manager_ident = method_ident_for("manage", &root.name);
+
+    let (basic_methods, basic_impls) = (
+        quote! {
+            async fn get(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+            async fn update(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+            async fn list(ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
+        },
+        quote! {
+            async fn get(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+                ctx.$ctx_repo_accessor().await?.#manager_ident().get(id).await
+            }
+            async fn update(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                ctx.$ctx_repo_accessor().await?.#manager_ident().update(self).await
+            }
+            async fn list(ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
+                ctx.$ctx_repo_accessor().await?.#manager_ident().query_all().await
+            }
+        },
+    );
+
+    let (add_methods, add_impls) = if is_ordered {
+        (
+            quote! {
+                async fn add(ctx: __ctx!(), data: #ty_data_ident, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+                async fn batch_add(ctx: __ctx!(), data: ::std::vec::Vec<#ty_data_ident>, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
+            },
+            quote! {
+                async fn add(ctx: __ctx!(), data: #ty_data_ident, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().add(data, after).await
                 }
-            )
-        };
+                async fn batch_add(ctx: __ctx!(), data: ::std::vec::Vec<#ty_data_ident>, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().batch_add(data, after).await
+                }
+            },
+        )
+    } else {
+        (
+            quote! {
+                async fn add(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+                async fn batch_add(ctx: __ctx!(), data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
+            },
+            quote! {
+                async fn add(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().add(data).await
+                }
+                async fn batch_add(ctx: __ctx!(), data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().batch_add(data).await
+                }
+            },
+        )
+    };
 
-        // `delete` methods based on whether the type has children.
-        let (delete_methods, delete_impls) = if root.has_children() {
-            (
-                quote! {
-                    async fn delete_recursive(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
-                    #[allow(non_snake_case)]
-                    async fn delete_non_recursive_DANGEROUS(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
-                    #[allow(non_snake_case)]
-                    async fn batch_delete_non_recursive_DANGEROUS(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError>;
-                    async fn list(ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
-                    #[allow(non_snake_case)]
-                    async fn batch_delete_all_non_recursive_DANGEROUS(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
-                },
-                quote! {
-                    async fn delete_recursive(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().delete_recursive(self).await
-                    }
-                    #[allow(non_snake_case)]
-                    async fn delete_non_recursive_DANGEROUS(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().delete_non_recursive(self).await
-                    }
-                    #[allow(non_snake_case)]
-                    async fn batch_delete_non_recursive_DANGEROUS(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete_non_recursive(items).await
-                    }
-                    async fn list(ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().query_all().await
-                    }
-                    #[allow(non_snake_case)]
-                    async fn batch_delete_all_non_recursive_DANGEROUS(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete_all_non_recursive().await
-                    }
-                },
-            )
-        } else {
-            (
-                quote! {
-                    async fn delete(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
-                    async fn batch_delete(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError>;
-                    async fn list(ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
-                    async fn batch_delete_all(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
-                },
-                quote! {
-                    async fn delete(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().delete(self).await
-                    }
-                    async fn batch_delete(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete(items).await
-                    }
-                    async fn list(ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().query_all().await
-                    }
-                    async fn batch_delete_all(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete_all().await
-                    }
-                },
-            )
-        };
+    let (delete_methods, delete_impls) = if root.has_children() {
+        (
+            quote! {
+                async fn delete_recursive(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
+                #[allow(non_snake_case)]
+                async fn delete_non_recursive_DANGEROUS(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
+                #[allow(non_snake_case)]
+                async fn batch_delete_non_recursive_DANGEROUS(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError>;
+                #[allow(non_snake_case)]
+                async fn batch_delete_all_non_recursive_DANGEROUS(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+            },
+            quote! {
+                async fn delete_recursive(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().delete_recursive(self).await
+                }
+                #[allow(non_snake_case)]
+                async fn delete_non_recursive_DANGEROUS(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().delete_non_recursive(self).await
+                }
+                #[allow(non_snake_case)]
+                async fn batch_delete_non_recursive_DANGEROUS(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete_non_recursive(items).await
+                }
+                #[allow(non_snake_case)]
+                async fn batch_delete_all_non_recursive_DANGEROUS(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete_all_non_recursive().await
+                }
+            },
+        )
+    } else {
+        (
+            quote! {
+                async fn delete(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
+                async fn batch_delete(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError>;
+                async fn batch_delete_all(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+            },
+            quote! {
+                async fn delete(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().delete(self).await
+                }
+                async fn batch_delete(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete(items).await
+                }
+                async fn batch_delete_all(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete_all().await
+                }
+            },
+        )
+    };
 
-        // Ordered child methods for this root.
-        let (ordered_child_methods, ordered_child_impls) = root.ordered_children.iter().map(|child_name| {
+    let (ordered_child_methods, ordered_child_impls) =
+        root.ordered_children.iter().map(|child_name| {
             let child_ident = child_name;
             let child_data_ident = Ident::new(&format!("{}Data", child_ident), child_ident.span());
             let child_manager_ident = method_ident_for("manage", child_ident);
@@ -111,8 +248,10 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             let child_singular_snake = to_snake_case(&base_pascal);
             let child_plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
             let add_child_fn = Ident::new(&format!("add_{}", child_singular_snake), child_ident.span());
-            let batch_add_children_fn = Ident::new(&format!("batch_add_{}", child_plural_snake), child_ident.span());
-            let list_children_fn = Ident::new(&format!("list_{}", child_plural_snake), child_ident.span());
+            let batch_add_children_fn =
+                Ident::new(&format!("batch_add_{}", child_plural_snake), child_ident.span());
+            let list_children_fn =
+                Ident::new(&format!("list_{}", child_plural_snake), child_ident.span());
             (
                 quote! {
                     async fn #add_child_fn(&self, ctx: __ctx!(), data: #child_data_ident, after: ::std::option::Option<& #child_ident>) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError>;
@@ -129,12 +268,12 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     async fn #list_children_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError> {
                         ctx.$ctx_repo_accessor().await?.#child_manager_ident().query_all(self).await
                     }
-                }
+                },
             )
         }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
-        // Unordered child methods for this root.
-        let (unordered_child_methods, unordered_child_impls) = root.unordered_children.iter().map(|child_name| {
+    let (unordered_child_methods, unordered_child_impls) =
+        root.unordered_children.iter().map(|child_name| {
             let child_ident = child_name;
             let child_data_ident = Ident::new(&format!("{}Data", child_ident), child_ident.span());
             let child_manager_ident = method_ident_for("manage", child_ident);
@@ -142,8 +281,10 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             let child_singular_snake = to_snake_case(&base_pascal);
             let child_plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
             let add_child_fn = Ident::new(&format!("add_{}", child_singular_snake), child_ident.span());
-            let batch_add_children_fn = Ident::new(&format!("batch_add_{}", child_plural_snake), child_ident.span());
-            let list_children_fn = Ident::new(&format!("list_{}", child_plural_snake), child_ident.span());
+            let batch_add_children_fn =
+                Ident::new(&format!("batch_add_{}", child_plural_snake), child_ident.span());
+            let list_children_fn =
+                Ident::new(&format!("list_{}", child_plural_snake), child_ident.span());
             (
                 quote! {
                     async fn #add_child_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError>;
@@ -160,207 +301,451 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     async fn #list_children_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError> {
                         ctx.$ctx_repo_accessor().await?.#child_manager_ident().query_all(self).await
                     }
-                }
+                },
             )
         }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
-        // Batch-child methods for this root.
-        let (batch_methods, batch_impls) = root.batch_children.iter().map(|batch_name| {
-            let batch_ident = batch_name;
-            let batch_data_ident = Ident::new(&format!("{}Data", batch_ident), batch_ident.span());
-            let batch_manager_ident = method_ident_for("manage", batch_ident);
-            let base_pascal = stripped_pascal(ty_ident, batch_ident);
+    let (batch_methods, batch_impls) = root.batch_children.iter().map(|batch_name| {
+        let batch_ident = batch_name;
+        let batch_data_ident = Ident::new(&format!("{}Data", batch_ident), batch_ident.span());
+        let batch_manager_ident = method_ident_for("manage", batch_ident);
+        let base_pascal = stripped_pascal(ty_ident, batch_ident);
+        let plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
+        let list_fn = Ident::new(&format!("list_{}", plural_snake), batch_ident.span());
+        let del_all_fn = Ident::new(&format!("batch_delete_all_{}", plural_snake), batch_ident.span());
+        let replace_all_fn =
+            Ident::new(&format!("batch_replace_all_{}", plural_snake), batch_ident.span());
+        (
+            quote! {
+                async fn #list_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#batch_ident>, ::fractic_server_error::ServerError>;
+                async fn #del_all_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                async fn #replace_all_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#batch_data_ident>) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+            },
+            quote! {
+                async fn #list_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#batch_ident>, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#batch_manager_ident().query_all(self).await
+                }
+                async fn #del_all_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#batch_manager_ident().batch_delete_all(self).await
+                }
+                async fn #replace_all_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#batch_data_ident>) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#batch_manager_ident().batch_replace_all_ordered(self, data).await
+                }
+            },
+        )
+    }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
+
+    let (singleton_child_methods, singleton_child_impls) = root
+        .singleton_children
+        .iter()
+        .map(|child_name| {
+            let child_ident = child_name;
+            let child_data_ident = Ident::new(&format!("{}Data", child_ident), child_ident.span());
+            let child_manager_ident = method_ident_for("manage", child_ident);
+            let base_pascal = stripped_pascal(ty_ident, child_ident);
+            let singular_snake = to_snake_case(&base_pascal);
+            let get_fn = Ident::new(&format!("get_{}", singular_snake), child_ident.span());
+            let set_fn = Ident::new(&format!("set_{}", singular_snake), child_ident.span());
+            let delete_fn = Ident::new(&format!("delete_{}", singular_snake), child_ident.span());
+            (
+                quote! {
+                    async fn #get_fn(&self, ctx: __ctx!()) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError>;
+                    async fn #set_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError>;
+                    async fn #delete_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                },
+                quote! {
+                    async fn #get_fn(&self, ctx: __ctx!()) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().get(self).await
+                    }
+                    async fn #set_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().set(self, data).await
+                    }
+                    async fn #delete_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().delete(self).await
+                    }
+                },
+            )
+        })
+        .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
+
+    let (singleton_family_child_methods, singleton_family_child_impls) = root
+        .singleton_family_children
+        .iter()
+        .map(|child_name| {
+            let child_ident = child_name;
+            let child_data_ident = Ident::new(&format!("{}Data", child_ident), child_ident.span());
+            let child_manager_ident = method_ident_for("manage", child_ident);
+            let base_pascal = stripped_pascal(ty_ident, child_ident);
+            let singular_snake = to_snake_case(&base_pascal);
             let plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
-            let list_fn = Ident::new(&format!("list_{}", plural_snake), batch_ident.span());
-            let del_all_fn = Ident::new(&format!("batch_delete_all_{}", plural_snake), batch_ident.span());
-            let replace_all_fn = Ident::new(&format!("batch_replace_all_{}", plural_snake), batch_ident.span());
+
+            let get_fn = Ident::new(&format!("get_{}", singular_snake), child_ident.span());
+            let set_fn = Ident::new(&format!("set_{}", singular_snake), child_ident.span());
+            let batch_set_fn = Ident::new(&format!("batch_set_{}", plural_snake), child_ident.span());
+            let delete_fn = Ident::new(&format!("delete_{}", singular_snake), child_ident.span());
+            let batch_delete_fn =
+                Ident::new(&format!("batch_delete_{}", plural_snake), child_ident.span());
+            let list_fn = Ident::new(&format!("list_{}", plural_snake), child_ident.span());
+            let batch_delete_all_fn =
+                Ident::new(&format!("batch_delete_all_{}", plural_snake), child_ident.span());
+
             (
                 quote! {
-                    async fn #list_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#batch_ident>, ::fractic_server_error::ServerError>;
-                    async fn #del_all_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
-                    async fn #replace_all_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#batch_data_ident>) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                    async fn #get_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError>;
+                    async fn #set_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError>;
+                    async fn #batch_set_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#child_data_ident>) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError>;
+                    async fn #delete_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                    async fn #batch_delete_fn(&self, ctx: __ctx!(), keys: ::std::vec::Vec<&str>) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                    async fn #list_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError>;
+                    async fn #batch_delete_all_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
                 },
                 quote! {
-                    async fn #list_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#batch_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#batch_manager_ident().query_all(self).await
+                    async fn #get_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().get(self, key).await
                     }
-                    async fn #del_all_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#batch_manager_ident().batch_delete_all(self).await
+                    async fn #set_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().set(self, data).await
                     }
-                    async fn #replace_all_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#batch_data_ident>) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#batch_manager_ident().batch_replace_all_ordered(self, data).await
+                    async fn #batch_set_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#child_data_ident>) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().batch_set(self, data).await
                     }
-                }
+                    async fn #delete_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().delete(self, key).await
+                    }
+                    async fn #batch_delete_fn(&self, ctx: __ctx!(), keys: ::std::vec::Vec<&str>) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().batch_delete(self, keys).await
+                    }
+                    async fn #list_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().query_all(self).await
+                    }
+                    async fn #batch_delete_all_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().batch_delete_all(self).await
+                    }
+                },
             )
-        }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
+        })
+        .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
-        let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
+    let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
 
-        quote! {
-            pub trait #trait_ident {
-                #basic_methods
-                #delete_methods
-                #(#ordered_child_methods)*
-                #(#unordered_child_methods)*
-                #(#batch_methods)*
-            }
-            impl #trait_ident for #ty_ident {
-                #basic_impls
-                #delete_impls
-                #(#ordered_child_impls)*
-                #(#unordered_child_impls)*
-                #(#batch_impls)*
-            }
+    quote! {
+        pub trait #trait_ident {
+            #basic_methods
+            #add_methods
+            #delete_methods
+            #(#ordered_child_methods)*
+            #(#unordered_child_methods)*
+            #(#batch_methods)*
+            #(#singleton_child_methods)*
+            #(#singleton_family_child_methods)*
         }
-    }).collect();
+        impl #trait_ident for #ty_ident {
+            #basic_impls
+            #add_impls
+            #delete_impls
+            #(#ordered_child_impls)*
+            #(#unordered_child_impls)*
+            #(#batch_impls)*
+            #(#singleton_child_impls)*
+            #(#singleton_family_child_impls)*
+        }
+    }
+}
 
-    // Build trait + impl blocks for ordered child objects.
-    let child_items: ::std::vec::Vec<TokenStream> = model.ordered_objects.iter().map(|c| (true, c)).chain(
-        model.unordered_objects.iter().map(|c| (false, c))
-    ).map(|(is_ordered, child)| {
-        let ty_ident = &child.name;
-        let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
-        let (parent_ident, parent_data_ident) = {
-            // These idents are used only to create dummy objects for unchecked
-            // methods. Since the dummy object is only needed to satisfy the
-            // type system, we can use any valid parent type.
-            let p = &child.parents[0];
-            let d = Ident::new(&format!("{}Data", p), p.span());
-            (p, d)
-        };
-        let manager_ident = method_ident_for("manage", &child.name);
+fn gen_root_batch_item(batch: &BatchDef) -> TokenStream {
+    let ty_ident = &batch.name;
+    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
+    let manager_ident = method_ident_for("manage", ty_ident);
+    let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
 
-        let (basic_methods, basic_impls) = {
-            (
-                quote! {
-                    async fn get(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
-                    async fn update(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
-                },
-                quote! {
-                    async fn get(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().get(id).await
-                    }
-                    async fn update(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().update(self).await
-                    }
+    let methods = quote! {
+        async fn list(ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
+        async fn batch_delete_all(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+        async fn batch_replace_all(ctx: __ctx!(), data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+    };
+    let impls = quote! {
+        async fn list(ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().query_all().await
+        }
+        async fn batch_delete_all(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete_all().await
+        }
+        async fn batch_replace_all(ctx: __ctx!(), data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().batch_replace_all_ordered(data).await
+        }
+    };
+
+    quote! {
+        pub trait #trait_ident {
+            #methods
+        }
+        impl #trait_ident for #ty_ident {
+            #impls
+        }
+    }
+}
+
+fn gen_child_batch_item(batch: &BatchDef, parent_ident: &Ident) -> TokenStream {
+    let ty_ident = &batch.name;
+    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
+    let parent_data_ident = Ident::new(&format!("{}Data", parent_ident), parent_ident.span());
+    let manager_ident = method_ident_for("manage", ty_ident);
+    let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
+
+    let methods = quote! {
+        async fn unchecked_list(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
+        async fn unchecked_batch_delete_all(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+        async fn unchecked_batch_replace_all(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+    };
+    let impls = quote! {
+        async fn unchecked_list(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
+            let tmp_dummy = #parent_ident {
+                id: parent_id,
+                data: #parent_data_ident::default(),
+                auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+            };
+            ctx.$ctx_repo_accessor().await?.#manager_ident().query_all(&tmp_dummy).await
+        }
+        async fn unchecked_batch_delete_all(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+            let tmp_dummy = #parent_ident {
+                id: parent_id,
+                data: #parent_data_ident::default(),
+                auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+            };
+            ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete_all(&tmp_dummy).await
+        }
+        async fn unchecked_batch_replace_all(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+            let tmp_dummy = #parent_ident {
+                id: parent_id,
+                data: #parent_data_ident::default(),
+                auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+            };
+            ctx.$ctx_repo_accessor().await?.#manager_ident().batch_replace_all_ordered(&tmp_dummy, data).await
+        }
+    };
+
+    quote! {
+        pub trait #trait_ident {
+            #methods
+        }
+        impl #trait_ident for #ty_ident {
+            #impls
+        }
+    }
+}
+
+fn gen_root_singleton_item(singleton: &SingletonDef) -> TokenStream {
+    let ty_ident = &singleton.name;
+    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
+    let manager_ident = method_ident_for("manage", ty_ident);
+    let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
+
+    let methods = quote! {
+        async fn get(ctx: __ctx!()) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+        async fn set(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+        async fn delete(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+    };
+    let impls = quote! {
+        async fn get(ctx: __ctx!()) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().get().await
+        }
+        async fn set(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().set(data).await
+        }
+        async fn delete(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().delete().await
+        }
+    };
+
+    quote! {
+        pub trait #trait_ident {
+            #methods
+        }
+        impl #trait_ident for #ty_ident {
+            #impls
+        }
+    }
+}
+
+fn gen_root_singleton_family_item(singleton_family: &SingletonFamilyDef) -> TokenStream {
+    let ty_ident = &singleton_family.name;
+    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
+    let manager_ident = method_ident_for("manage", ty_ident);
+    let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
+
+    let methods = quote! {
+        async fn get(ctx: __ctx!(), key: &str) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+        async fn set(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+        async fn batch_set(ctx: __ctx!(), data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
+        async fn delete(ctx: __ctx!(), key: &str) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+        async fn batch_delete(ctx: __ctx!(), keys: ::std::vec::Vec<&str>) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+        async fn list(ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
+        async fn batch_delete_all(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+    };
+    let impls = quote! {
+        async fn get(ctx: __ctx!(), key: &str) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().get(key).await
+        }
+        async fn set(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().set(data).await
+        }
+        async fn batch_set(ctx: __ctx!(), data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().batch_set(data).await
+        }
+        async fn delete(ctx: __ctx!(), key: &str) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().delete(key).await
+        }
+        async fn batch_delete(ctx: __ctx!(), keys: ::std::vec::Vec<&str>) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete(keys).await
+        }
+        async fn list(ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().query_all().await
+        }
+        async fn batch_delete_all(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete_all().await
+        }
+    };
+
+    quote! {
+        pub trait #trait_ident {
+            #methods
+        }
+        impl #trait_ident for #ty_ident {
+            #impls
+        }
+    }
+}
+
+fn gen_child_standard_item(
+    child: &StandardDef,
+    parent_ident: &Ident,
+    is_ordered: bool,
+) -> TokenStream {
+    let ty_ident = &child.name;
+    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
+    let parent_data_ident = Ident::new(&format!("{}Data", parent_ident), parent_ident.span());
+    let manager_ident = method_ident_for("manage", &child.name);
+
+    let (basic_methods, basic_impls) = (
+        quote! {
+            async fn get(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+            async fn update(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                async fn unchecked_list(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
+        },
+        quote! {
+            async fn get(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+                ctx.$ctx_repo_accessor().await?.#manager_ident().get(id).await
+            }
+            async fn update(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                ctx.$ctx_repo_accessor().await?.#manager_ident().update(self).await
+            }
+                async fn unchecked_list(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
+                    let tmp_dummy = #parent_ident {
+                        id: parent_id,
+                        data: #parent_data_ident::default(),
+                        auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+                    };
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().query_all(&tmp_dummy).await
                 }
-            )
-        };
+        },
+    );
 
-        // `delete` methods based on whether the child has children of its own.
-        let (delete_methods, delete_impls) = if child.has_children() {
-            (
-                quote! {
-                    async fn delete_recursive(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
-                    #[allow(non_snake_case)]
-                    async fn delete_non_recursive_DANGEROUS(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
-                    #[allow(non_snake_case)]
-                    async fn batch_delete_non_recursive_DANGEROUS(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError>;
-                },
-                quote! {
-                    async fn delete_recursive(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().delete_recursive(self).await
-                    }
-                    #[allow(non_snake_case)]
-                    async fn delete_non_recursive_DANGEROUS(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().delete_non_recursive(self).await
-                    }
-                    #[allow(non_snake_case)]
-                    async fn batch_delete_non_recursive_DANGEROUS(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete_non_recursive(items).await
-                    }
-                },
-            )
-        } else {
-            (
-                quote! {
-                    async fn delete(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
-                    async fn batch_delete(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError>;
-                },
-                quote! {
-                    async fn delete(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().delete(self).await
-                    }
-                    async fn batch_delete(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete(items).await
-                    }
-                },
-            )
-        };
-
-        // Unchecked helper methods that take `parent_id` instead of `&Parent`.
-        let (unchecked_methods, unchecked_impls) = if is_ordered {
-            (
-                quote! {
-                    async fn unchecked_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
-                    async fn unchecked_batch_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
-                    async fn unchecked_list(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
-                },
-                quote! {
-                    async fn unchecked_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
-                        let tmp_dummy = #parent_ident {
-                            id: parent_id,
-                            data: #parent_data_ident::default(),
-                            auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
-                        };
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().add(&tmp_dummy, data, after).await
-                    }
-                    async fn unchecked_batch_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
-                        let tmp_dummy = #parent_ident {
-                            id: parent_id,
-                            data: #parent_data_ident::default(),
-                            auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
-                        };
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().batch_add(&tmp_dummy, data, after).await
-                    }
-                    async fn unchecked_list(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
-                        let tmp_dummy = #parent_ident {
-                            id: parent_id,
-                            data: #parent_data_ident::default(),
-                            auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
-                        };
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().query_all(&tmp_dummy).await
-                    }
+    let (add_methods, add_impls) = if is_ordered {
+        (
+            quote! {
+                async fn unchecked_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+                async fn unchecked_batch_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
+            },
+            quote! {
+                async fn unchecked_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+                    let tmp_dummy = #parent_ident {
+                        id: parent_id,
+                        data: #parent_data_ident::default(),
+                        auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+                    };
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().add(&tmp_dummy, data, after).await
                 }
-            )
-        } else {
-            (
-                quote! {
-                    async fn unchecked_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
-                    async fn unchecked_batch_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
-                    async fn unchecked_list(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
-                },
-                quote! {
-                    async fn unchecked_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
-                        let tmp_dummy = #parent_ident {
-                            id: parent_id,
-                            data: #parent_data_ident::default(),
-                            auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
-                        };
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().add(&tmp_dummy, data).await
-                    }
-                    async fn unchecked_batch_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
-                        let tmp_dummy = #parent_ident {
-                            id: parent_id,
-                            data: #parent_data_ident::default(),
-                            auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
-                        };
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().batch_add(&tmp_dummy, data).await
-                    }
-                    async fn unchecked_list(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
-                        let tmp_dummy = #parent_ident {
-                            id: parent_id,
-                            data: #parent_data_ident::default(),
-                            auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
-                        };
-                        ctx.$ctx_repo_accessor().await?.#manager_ident().query_all(&tmp_dummy).await
-                    }
+                async fn unchecked_batch_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>, after: ::std::option::Option<& #ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
+                    let tmp_dummy = #parent_ident {
+                        id: parent_id,
+                        data: #parent_data_ident::default(),
+                        auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+                    };
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().batch_add(&tmp_dummy, data, after).await
                 }
-            )
-        };
+            },
+        )
+    } else {
+        (
+            quote! {
+                async fn unchecked_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+                async fn unchecked_batch_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
+            },
+            quote! {
+                async fn unchecked_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+                    let tmp_dummy = #parent_ident {
+                        id: parent_id,
+                        data: #parent_data_ident::default(),
+                        auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+                    };
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().add(&tmp_dummy, data).await
+                }
+                async fn unchecked_batch_add(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
+                    let tmp_dummy = #parent_ident {
+                        id: parent_id,
+                        data: #parent_data_ident::default(),
+                        auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+                    };
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().batch_add(&tmp_dummy, data).await
+                }
+            },
+        )
+    };
 
-        // Ordered children of this child.
-        let (ordered_grandchild_methods, ordered_grandchild_impls) = child.ordered_children.iter().map(|grandchild| {
+    let (delete_methods, delete_impls) = if child.has_children() {
+        (
+            quote! {
+                async fn delete_recursive(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
+                #[allow(non_snake_case)]
+                async fn delete_non_recursive_DANGEROUS(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
+                #[allow(non_snake_case)]
+                async fn batch_delete_non_recursive_DANGEROUS(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError>;
+            },
+            quote! {
+                async fn delete_recursive(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().delete_recursive(self).await
+                }
+                #[allow(non_snake_case)]
+                async fn delete_non_recursive_DANGEROUS(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().delete_non_recursive(self).await
+                }
+                #[allow(non_snake_case)]
+                async fn batch_delete_non_recursive_DANGEROUS(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete_non_recursive(items).await
+                }
+            },
+        )
+    } else {
+        (
+            quote! {
+                async fn delete(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError>;
+                async fn batch_delete(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError>;
+            },
+            quote! {
+                async fn delete(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().delete(self).await
+                }
+                async fn batch_delete(ctx: __ctx!(), items: ::std::vec::Vec<#ty_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_data_ident>, ::fractic_server_error::ServerError> {
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete(items).await
+                }
+            },
+        )
+    };
+
+    let (ordered_grandchild_methods, ordered_grandchild_impls) = child
+        .ordered_children
+        .iter()
+        .map(|grandchild| {
             let gc_ident = grandchild;
             let gc_data_ident = Ident::new(&format!("{}Data", gc_ident), gc_ident.span());
             let gc_manager_ident = method_ident_for("manage", gc_ident);
@@ -388,10 +773,13 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     }
                 }
             )
-        }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
+        })
+        .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
-        // Unordered children of this child.
-        let (unordered_grandchild_methods, unordered_grandchild_impls) = child.unordered_children.iter().map(|grandchild| {
+    let (unordered_grandchild_methods, unordered_grandchild_impls) = child
+        .unordered_children
+        .iter()
+        .map(|grandchild| {
             let gc_ident = grandchild;
             let gc_data_ident = Ident::new(&format!("{}Data", gc_ident), gc_ident.span());
             let gc_manager_ident = method_ident_for("manage", gc_ident);
@@ -419,10 +807,13 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     }
                 }
             )
-        }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
+        })
+        .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
-        // Batch children of this child.
-        let (batch_methods, batch_impls) = child.batch_children.iter().map(|batch| {
+    let (batch_methods, batch_impls) = child
+        .batch_children
+        .iter()
+        .map(|batch| {
             let b_ident = batch;
             let b_data_ident = Ident::new(&format!("{}Data", b_ident), b_ident.span());
             let b_manager_ident = method_ident_for("manage", b_ident);
@@ -449,62 +840,258 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     }
                 }
             )
-        }).unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
+        })
+        .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
-        let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
+    let (singleton_child_methods, singleton_child_impls) = child
+        .singleton_children
+        .iter()
+        .map(|singleton_child| {
+            let s_ident = singleton_child;
+            let s_data_ident = Ident::new(&format!("{}Data", s_ident), s_ident.span());
+            let s_manager_ident = method_ident_for("manage", s_ident);
+            let base_pascal = stripped_pascal(ty_ident, s_ident);
+            let singular_snake = to_snake_case(&base_pascal);
+            let get_fn = Ident::new(&format!("get_{}", singular_snake), s_ident.span());
+            let set_fn = Ident::new(&format!("set_{}", singular_snake), s_ident.span());
+            let delete_fn = Ident::new(&format!("delete_{}", singular_snake), s_ident.span());
+            (
+                quote! {
+                    async fn #get_fn(&self, ctx: __ctx!()) -> ::std::result::Result<#s_ident, ::fractic_server_error::ServerError>;
+                    async fn #set_fn(&self, ctx: __ctx!(), data: #s_data_ident) -> ::std::result::Result<#s_ident, ::fractic_server_error::ServerError>;
+                    async fn #delete_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                },
+                quote! {
+                    async fn #get_fn(&self, ctx: __ctx!()) -> ::std::result::Result<#s_ident, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().get(self).await
+                    }
+                    async fn #set_fn(&self, ctx: __ctx!(), data: #s_data_ident) -> ::std::result::Result<#s_ident, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().set(self, data).await
+                    }
+                    async fn #delete_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().delete(self).await
+                    }
+                }
+            )
+        })
+        .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
-        quote! {
-            pub trait #trait_ident {
-                #basic_methods
-                #delete_methods
-                #unchecked_methods
-                #(#ordered_grandchild_methods)*
-                #(#unordered_grandchild_methods)*
-                #(#batch_methods)*
-            }
-            impl #trait_ident for #ty_ident {
-                #basic_impls
-                #delete_impls
-                #unchecked_impls
-                #(#ordered_grandchild_impls)*
-                #(#unordered_grandchild_impls)*
-                #(#batch_impls)*
-            }
-        }
-    }).collect();
+    let (singleton_family_child_methods, singleton_family_child_impls) = child
+        .singleton_family_children
+        .iter()
+        .map(|singleton_family_child| {
+            let s_ident = singleton_family_child;
+            let s_data_ident = Ident::new(&format!("{}Data", s_ident), s_ident.span());
+            let s_manager_ident = method_ident_for("manage", s_ident);
+            let base_pascal = stripped_pascal(ty_ident, s_ident);
+            let singular_snake = to_snake_case(&base_pascal);
+            let plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
 
-    let root_items_clone = root_items.clone();
-    let child_items_clone = child_items.clone();
+            let get_fn = Ident::new(&format!("get_{}", singular_snake), s_ident.span());
+            let set_fn = Ident::new(&format!("set_{}", singular_snake), s_ident.span());
+            let batch_set_fn = Ident::new(&format!("batch_set_{}", plural_snake), s_ident.span());
+            let delete_fn = Ident::new(&format!("delete_{}", singular_snake), s_ident.span());
+            let batch_delete_fn = Ident::new(&format!("batch_delete_{}", plural_snake), s_ident.span());
+            let list_fn = Ident::new(&format!("list_{}", plural_snake), s_ident.span());
+            let batch_delete_all_fn = Ident::new(&format!("batch_delete_all_{}", plural_snake), s_ident.span());
+
+            (
+                quote! {
+                    async fn #get_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<#s_ident, ::fractic_server_error::ServerError>;
+                    async fn #set_fn(&self, ctx: __ctx!(), data: #s_data_ident) -> ::std::result::Result<#s_ident, ::fractic_server_error::ServerError>;
+                    async fn #batch_set_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#s_data_ident>) -> ::std::result::Result<::std::vec::Vec<#s_ident>, ::fractic_server_error::ServerError>;
+                    async fn #delete_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                    async fn #batch_delete_fn(&self, ctx: __ctx!(), keys: ::std::vec::Vec<&str>) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                    async fn #list_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#s_ident>, ::fractic_server_error::ServerError>;
+                    async fn #batch_delete_all_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                },
+                quote! {
+                    async fn #get_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<#s_ident, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().get(self, key).await
+                    }
+                    async fn #set_fn(&self, ctx: __ctx!(), data: #s_data_ident) -> ::std::result::Result<#s_ident, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().set(self, data).await
+                    }
+                    async fn #batch_set_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#s_data_ident>) -> ::std::result::Result<::std::vec::Vec<#s_ident>, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().batch_set(self, data).await
+                    }
+                    async fn #delete_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().delete(self, key).await
+                    }
+                    async fn #batch_delete_fn(&self, ctx: __ctx!(), keys: ::std::vec::Vec<&str>) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().batch_delete(self, keys).await
+                    }
+                    async fn #list_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#s_ident>, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().query_all(self).await
+                    }
+                    async fn #batch_delete_all_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().batch_delete_all(self).await
+                    }
+                }
+            )
+        })
+        .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
+
+    let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
 
     quote! {
-        #[allow(unused_macros)]
-        #[macro_export]
-        macro_rules! #macro_name_ident {
-            (dyn $ctx_view:path => $ctx_repo_accessor:ident) => {
-                // Local helper for the context type when a trait is provided.
-                macro_rules! __ctx { () => { &impl $ctx_view } }
-
-                // Roots:
-                #(#root_items)*
-
-                // Children:
-                #(#child_items)*
-            };
-            ($ctx:ty => $ctx_repo_accessor:ident) => {
-                // Local helper for the context type when a concrete type is
-                // provided.
-                macro_rules! __ctx { () => { & $ctx } }
-
-                // Roots:
-                #(#root_items_clone)*
-
-                // Children:
-                #(#child_items_clone)*
-            };
+        pub trait #trait_ident {
+            #basic_methods
+            #add_methods
+            #delete_methods
+            #(#ordered_grandchild_methods)*
+            #(#unordered_grandchild_methods)*
+            #(#batch_methods)*
+            #(#singleton_child_methods)*
+            #(#singleton_family_child_methods)*
         }
+        impl #trait_ident for #ty_ident {
+            #basic_impls
+            #add_impls
+            #delete_impls
+            #(#ordered_grandchild_impls)*
+            #(#unordered_grandchild_impls)*
+            #(#batch_impls)*
+            #(#singleton_child_impls)*
+            #(#singleton_family_child_impls)*
+        }
+    }
+}
 
-        #[allow(unused_imports)]
-        pub(crate) use #macro_name_ident;
+fn gen_child_singleton_item(singleton: &SingletonDef, parent_ident: &Ident) -> TokenStream {
+    let ty_ident = &singleton.name;
+    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
+    let parent_data_ident = Ident::new(&format!("{}Data", parent_ident), parent_ident.span());
+    let manager_ident = method_ident_for("manage", ty_ident);
+    let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
+
+    let methods = quote! {
+        async fn unchecked_get(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+        async fn unchecked_set(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+        async fn unchecked_delete(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+    };
+    let impls = quote! {
+        async fn unchecked_get(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+            let tmp_dummy = #parent_ident {
+                id: parent_id,
+                data: #parent_data_ident::default(),
+                auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+            };
+            ctx.$ctx_repo_accessor().await?.#manager_ident().get(&tmp_dummy).await
+        }
+        async fn unchecked_set(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+            let tmp_dummy = #parent_ident {
+                id: parent_id,
+                data: #parent_data_ident::default(),
+                auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+            };
+            ctx.$ctx_repo_accessor().await?.#manager_ident().set(&tmp_dummy, data).await
+        }
+        async fn unchecked_delete(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+            let tmp_dummy = #parent_ident {
+                id: parent_id,
+                data: #parent_data_ident::default(),
+                auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+            };
+            ctx.$ctx_repo_accessor().await?.#manager_ident().delete(&tmp_dummy).await
+        }
+    };
+
+    quote! {
+        pub trait #trait_ident {
+            #methods
+        }
+        impl #trait_ident for #ty_ident {
+            #impls
+        }
+    }
+}
+
+fn gen_child_singleton_family_item(
+    singleton_family: &SingletonFamilyDef,
+    parent_ident: &Ident,
+) -> TokenStream {
+    let ty_ident = &singleton_family.name;
+    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
+    let parent_data_ident = Ident::new(&format!("{}Data", parent_ident), parent_ident.span());
+    let manager_ident = method_ident_for("manage", ty_ident);
+    let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
+
+    let methods = quote! {
+        async fn unchecked_get(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, key: &str) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+        async fn unchecked_set(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+        async fn unchecked_batch_set(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
+        async fn unchecked_delete(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, key: &str) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+        async fn unchecked_batch_delete(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, keys: ::std::vec::Vec<&str>) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+        async fn unchecked_list(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
+        async fn unchecked_batch_delete_all(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+    };
+    let impls = quote! {
+        async fn unchecked_get(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, key: &str) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+            let tmp_dummy = #parent_ident {
+                id: parent_id,
+                data: #parent_data_ident::default(),
+                auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+            };
+            ctx.$ctx_repo_accessor().await?.#manager_ident().get(&tmp_dummy, key).await
+        }
+        async fn unchecked_set(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
+            let tmp_dummy = #parent_ident {
+                id: parent_id,
+                data: #parent_data_ident::default(),
+                auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+            };
+            ctx.$ctx_repo_accessor().await?.#manager_ident().set(&tmp_dummy, data).await
+        }
+        async fn unchecked_batch_set(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
+            let tmp_dummy = #parent_ident {
+                id: parent_id,
+                data: #parent_data_ident::default(),
+                auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+            };
+            ctx.$ctx_repo_accessor().await?.#manager_ident().batch_set(&tmp_dummy, data).await
+        }
+        async fn unchecked_delete(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, key: &str) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+            let tmp_dummy = #parent_ident {
+                id: parent_id,
+                data: #parent_data_ident::default(),
+                auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+            };
+            ctx.$ctx_repo_accessor().await?.#manager_ident().delete(&tmp_dummy, key).await
+        }
+        async fn unchecked_batch_delete(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, keys: ::std::vec::Vec<&str>) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+            let tmp_dummy = #parent_ident {
+                id: parent_id,
+                data: #parent_data_ident::default(),
+                auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+            };
+            ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete(&tmp_dummy, keys).await
+        }
+        async fn unchecked_list(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError> {
+            let tmp_dummy = #parent_ident {
+                id: parent_id,
+                data: #parent_data_ident::default(),
+                auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+            };
+            ctx.$ctx_repo_accessor().await?.#manager_ident().query_all(&tmp_dummy).await
+        }
+        async fn unchecked_batch_delete_all(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+            let tmp_dummy = #parent_ident {
+                id: parent_id,
+                data: #parent_data_ident::default(),
+                auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
+            };
+            ctx.$ctx_repo_accessor().await?.#manager_ident().batch_delete_all(&tmp_dummy).await
+        }
+    };
+
+    quote! {
+        pub trait #trait_ident {
+            #methods
+        }
+        impl #trait_ident for #ty_ident {
+            #impls
+        }
     }
 }
 
