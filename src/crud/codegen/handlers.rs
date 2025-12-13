@@ -3,7 +3,7 @@ use quote::quote;
 use syn::Ident;
 
 use crate::{
-    crud::model::{BatchDef, ConfigModel, StandardDef},
+    crud::model::{BatchDef, ConfigModel, SingletonDef, SingletonFamilyDef, StandardDef},
     helpers::to_snake_case,
 };
 
@@ -58,6 +58,22 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 .filter(|batch| batch.parents.is_none())
                 .map(|batch| gen_root_batch_handler(batch, repo_name)),
         )
+        .chain(
+            model
+                .singleton_objects
+                .iter()
+                .filter(|singleton| singleton.parents.is_none())
+                .map(|singleton| gen_root_singleton_handler(singleton, repo_name)),
+        )
+        .chain(
+            model
+                .singleton_family_objects
+                .iter()
+                .filter(|singleton_family| singleton_family.parents.is_none())
+                .map(|singleton_family| {
+                    gen_root_singleton_family_handler(singleton_family, repo_name)
+                }),
+        )
         .collect::<Vec<_>>();
 
     // Build handlers for nchild types.
@@ -79,6 +95,22 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 .iter()
                 .filter(|batch| batch.parents.is_some())
                 .map(|batch| gen_child_batch_handler(batch, repo_name)),
+        )
+        .chain(
+            model
+                .singleton_objects
+                .iter()
+                .filter(|singleton| singleton.parents.is_some())
+                .map(|singleton| gen_child_singleton_handler(singleton, repo_name)),
+        )
+        .chain(
+            model
+                .singleton_family_objects
+                .iter()
+                .filter(|singleton_family| singleton_family.parents.is_some())
+                .map(|singleton_family| {
+                    gen_child_singleton_family_handler(singleton_family, repo_name)
+                }),
         )
         .collect::<Vec<_>>();
 
@@ -223,13 +255,33 @@ fn gen_root_standard_handler(
         }
     };
     let read_arm = quote! {
-        Read { id } => {
+        Read { item_ref } => {
+            let ::fractic_aws_apigateway::ItemRef::Id(id) = item_ref else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read operations on {} require ItemRef::Id",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
             let __item = __repo.#manager_ident().get(id).await?;
             ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
         },
     };
     let read_multiple_arm = quote! {
-        ReadMultiple { ids } => {
+        ReadMultiple { item_refs } => {
+            let ::fractic_aws_apigateway::ItemRefs::Id(ids) = item_refs else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read-multiple operations on {} require ItemRefs::Id",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
             let __futs = ids.into_iter().map(|id| __repo.#manager_ident().get(id));
             let __items = ::futures_util::future::try_join_all(__futs).await?;
             ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
@@ -243,7 +295,17 @@ fn gen_root_standard_handler(
     };
     let delete_arm = if has_children {
         quote! {
-            Delete { id, non_recursive } => {
+            Delete { item_ref, non_recursive } => {
+                let ::fractic_aws_apigateway::ItemRef::Id(id) = item_ref else {
+                    return ::std::result::Result::Err(
+                        ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                            &format!(
+                                "delete operations on {} require ItemRef::Id",
+                                stringify!(#ty_ident)
+                            )
+                        ).into()
+                    );
+                };
                 let __item = __placeholder_item!(#ty_ident, id);
                 if non_recursive {
                     __repo.#manager_ident().delete_non_recursive(__item).await?;
@@ -255,7 +317,17 @@ fn gen_root_standard_handler(
         }
     } else {
         quote! {
-            Delete { id, non_recursive: _ } => {
+            Delete { item_ref, non_recursive: _ } => {
+                let ::fractic_aws_apigateway::ItemRef::Id(id) = item_ref else {
+                    return ::std::result::Result::Err(
+                        ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                            &format!(
+                                "delete operations on {} require ItemRef::Id",
+                                stringify!(#ty_ident)
+                            )
+                        ).into()
+                    );
+                };
                 let __item = __placeholder_item!(#ty_ident, id);
                 __repo.#manager_ident().delete(__item).await?;
                 ::std::result::Result::Ok(__CrudOperationResult::Unit)
@@ -264,7 +336,17 @@ fn gen_root_standard_handler(
     };
     let delete_multiple_arm = if has_children {
         quote! {
-            DeleteMultiple { ids, non_recursive } => {
+            DeleteMultiple { item_refs, non_recursive } => {
+                let ::fractic_aws_apigateway::ItemRefs::Id(ids) = item_refs else {
+                    return ::std::result::Result::Err(
+                        ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                            &format!(
+                                "batch delete operations on {} require ItemRefs::Id",
+                                stringify!(#ty_ident)
+                            )
+                        ).into()
+                    );
+                };
                 if !non_recursive {
                     return ::std::result::Result::Err(
                         ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
@@ -282,7 +364,17 @@ fn gen_root_standard_handler(
         }
     } else {
         quote! {
-            DeleteMultiple { ids, non_recursive: _ } => {
+            DeleteMultiple { item_refs, non_recursive: _ } => {
+                let ::fractic_aws_apigateway::ItemRefs::Id(ids) = item_refs else {
+                    return ::std::result::Result::Err(
+                        ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                            &format!(
+                                "batch delete operations on {} require ItemRefs::Id",
+                                stringify!(#ty_ident)
+                            )
+                        ).into()
+                    );
+                };
                 let __items = ids
                     .into_iter()
                     .map(|id| __placeholder_item!(#ty_ident, id))
@@ -436,6 +528,368 @@ fn gen_root_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
     }
 }
 
+fn gen_root_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> TokenStream {
+    let ty_ident = &singleton.name;
+    let manager_ident = method_ident_for("manage", ty_ident);
+    let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
+
+    let read_arm = quote! {
+        Read { item_ref } => {
+            let ::fractic_aws_apigateway::ItemRef::None { parent_id } = item_ref else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read operations on singleton {} require ItemRef::None",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            if parent_id.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read operations on root singleton {} do not allow a parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            let __item = __repo.#manager_ident().get().await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
+        },
+    };
+
+    let create_arm = quote! {
+        Create { parent_id, after, data } => {
+            if parent_id.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "create operations on root singleton {} do not allow a parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            if after.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "create operations on singleton {} do not allow an `after` parameter",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            let __created = __repo.#manager_ident().set(data).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::CreatedId { created_id: __created.id })
+        },
+    };
+
+    let delete_arm = quote! {
+        Delete { item_ref, non_recursive: _ } => {
+            let ::fractic_aws_apigateway::ItemRef::None { parent_id } = item_ref else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "delete operations on singleton {} require ItemRef::None",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            if parent_id.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "delete operations on root singleton {} do not allow a parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            __repo.#manager_ident().delete().await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Unit)
+        },
+    };
+
+    let unsupported_arm = quote! {
+        List { .. }
+        | CreateMultiple { .. }
+        | ReadMultiple { .. }
+        | Update { .. }
+        | DeleteMultiple { .. }
+        | DeleteAll { .. }
+        | ReplaceAll { .. } => {
+            ::std::result::Result::Err(
+                ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                    &format!(
+                        "operation not supported for singleton {}",
+                        stringify!(#ty_ident)
+                    )
+                ).into()
+            )
+        },
+    };
+
+    quote! {
+        pub async fn #handler_ident(
+            operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
+        ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
+            use ::fractic_aws_apigateway::CrudOperation::*;
+            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
+            match operation {
+                #read_arm
+                #create_arm
+                #delete_arm
+                #unsupported_arm
+            }
+        }
+    }
+}
+
+fn gen_root_singleton_family_handler(
+    singleton_family: &SingletonFamilyDef,
+    repo_name: &Ident,
+) -> TokenStream {
+    let ty_ident = &singleton_family.name;
+    let manager_ident = method_ident_for("manage", ty_ident);
+    let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
+
+    let list_arm = quote! {
+        List { parent_id } => {
+            if parent_id.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "list operations on root singleton family {} do not allow a parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            let __items = __repo.#manager_ident().query_all().await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
+        },
+    };
+
+    let read_arm = quote! {
+        Read { item_ref } => {
+            let ::fractic_aws_apigateway::ItemRef::Key { parent_id, key } = item_ref else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read operations on singleton family {} require ItemRef::Key",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            if parent_id.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read operations on root singleton family {} do not allow a parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            let __item = __repo.#manager_ident().get(&key).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
+        },
+    };
+
+    let read_multiple_arm = quote! {
+        ReadMultiple { item_refs } => {
+            let ::fractic_aws_apigateway::ItemRefs::Key { parent_id, keys } = item_refs else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read-multiple operations on singleton family {} require ItemRefs::Key",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            if parent_id.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read-multiple operations on root singleton family {} do not allow a parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            let __futs = keys.iter().map(|key| __repo.#manager_ident().get(key));
+            let __items = ::futures_util::future::try_join_all(__futs).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
+        },
+    };
+
+    let create_arm = quote! {
+        Create { parent_id, after, data } => {
+            if parent_id.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "create operations on root singleton family {} do not allow a parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            if after.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "create operations on singleton family {} do not allow an `after` parameter",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            let __created = __repo.#manager_ident().set(data).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::CreatedId { created_id: __created.id })
+        },
+    };
+
+    let create_multiple_arm = quote! {
+        CreateMultiple { parent_id, after, data } => {
+            if parent_id.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "batch create operations on root singleton family {} do not allow a parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            if after.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "batch create operations on singleton family {} do not allow an `after` parameter",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            let __created = __repo.#manager_ident().batch_set(data).await?;
+            let __ids = __created.into_iter().map(|x| x.id).collect::<::std::vec::Vec<_>>();
+            ::std::result::Result::Ok(__CrudOperationResult::CreatedIds { created_ids: __ids })
+        },
+    };
+
+    let delete_arm = quote! {
+        Delete { item_ref, non_recursive: _ } => {
+            let ::fractic_aws_apigateway::ItemRef::Key { parent_id, key } = item_ref else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "delete operations on singleton family {} require ItemRef::Key",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            if parent_id.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "delete operations on root singleton family {} do not allow a parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            __repo.#manager_ident().delete(&key).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Unit)
+        },
+    };
+
+    let delete_multiple_arm = quote! {
+        DeleteMultiple { item_refs, non_recursive: _ } => {
+            let ::fractic_aws_apigateway::ItemRefs::Key { parent_id, keys } = item_refs else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "batch delete operations on singleton family {} require ItemRefs::Key",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            if parent_id.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "batch delete operations on root singleton family {} do not allow a parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            let __keys = keys.iter().map(|k| k.as_str()).collect::<::std::vec::Vec<_>>();
+            __repo.#manager_ident().batch_delete(__keys).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Unit)
+        },
+    };
+
+    let delete_all_arm = quote! {
+        DeleteAll { parent_id, non_recursive: _ } => {
+            if parent_id.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "delete-all operations on root singleton family {} do not allow a parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            __repo.#manager_ident().batch_delete_all().await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Unit)
+        },
+    };
+
+    let unsupported_arm = quote! {
+        Update { .. } | ReplaceAll { .. } => {
+            ::std::result::Result::Err(
+                ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                    &format!(
+                        "operation not supported for singleton family {}",
+                        stringify!(#ty_ident)
+                    )
+                ).into()
+            )
+        },
+    };
+
+    quote! {
+        pub async fn #handler_ident(
+            operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
+        ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
+            use ::fractic_aws_apigateway::CrudOperation::*;
+            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
+            match operation {
+                #list_arm
+                #read_arm
+                #read_multiple_arm
+                #create_arm
+                #create_multiple_arm
+                #delete_arm
+                #delete_multiple_arm
+                #delete_all_arm
+                #unsupported_arm
+            }
+        }
+    }
+}
+
 fn gen_child_standard_handler(
     child: &StandardDef,
     is_ordered: bool,
@@ -550,13 +1004,33 @@ fn gen_child_standard_handler(
         }
     };
     let read_arm = quote! {
-        Read { id } => {
+        Read { item_ref } => {
+            let ::fractic_aws_apigateway::ItemRef::Id(id) = item_ref else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read operations on {} require ItemRef::Id",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
             let __item = __repo.#manager_ident().get(id).await?;
             ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
         },
     };
     let read_multiple_arm = quote! {
-        ReadMultiple { ids } => {
+        ReadMultiple { item_refs } => {
+            let ::fractic_aws_apigateway::ItemRefs::Id(ids) = item_refs else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read-multiple operations on {} require ItemRefs::Id",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
             let __futs = ids.into_iter().map(|id| __repo.#manager_ident().get(id));
             let __items = ::futures_util::future::try_join_all(__futs).await?;
             ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
@@ -570,7 +1044,17 @@ fn gen_child_standard_handler(
     };
     let delete_arm = if has_children {
         quote! {
-            Delete { id, non_recursive } => {
+            Delete { item_ref, non_recursive } => {
+                let ::fractic_aws_apigateway::ItemRef::Id(id) = item_ref else {
+                    return ::std::result::Result::Err(
+                        ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                            &format!(
+                                "delete operations on {} require ItemRef::Id",
+                                stringify!(#ty_ident)
+                            )
+                        ).into()
+                    );
+                };
                 let __item = __placeholder_item!(#ty_ident, id);
                 if non_recursive {
                     __repo.#manager_ident().delete_non_recursive(__item).await?;
@@ -582,7 +1066,17 @@ fn gen_child_standard_handler(
         }
     } else {
         quote! {
-            Delete { id, non_recursive: _ } => {
+            Delete { item_ref, non_recursive: _ } => {
+                let ::fractic_aws_apigateway::ItemRef::Id(id) = item_ref else {
+                    return ::std::result::Result::Err(
+                        ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                            &format!(
+                                "delete operations on {} require ItemRef::Id",
+                                stringify!(#ty_ident)
+                            )
+                        ).into()
+                    );
+                };
                 let __item = __placeholder_item!(#ty_ident, id);
                 __repo.#manager_ident().delete(__item).await?;
                 ::std::result::Result::Ok(__CrudOperationResult::Unit)
@@ -591,7 +1085,17 @@ fn gen_child_standard_handler(
     };
     let delete_multiple_arm = if has_children {
         quote! {
-            DeleteMultiple { ids, non_recursive } => {
+            DeleteMultiple { item_refs, non_recursive } => {
+                let ::fractic_aws_apigateway::ItemRefs::Id(ids) = item_refs else {
+                    return ::std::result::Result::Err(
+                        ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                            &format!(
+                                "batch delete operations on {} require ItemRefs::Id",
+                                stringify!(#ty_ident)
+                            )
+                        ).into()
+                    );
+                };
                 if !non_recursive {
                     return ::std::result::Result::Err(
                         ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
@@ -609,7 +1113,17 @@ fn gen_child_standard_handler(
         }
     } else {
         quote! {
-            DeleteMultiple { ids, non_recursive: _ } => {
+            DeleteMultiple { item_refs, non_recursive: _ } => {
+                let ::fractic_aws_apigateway::ItemRefs::Id(ids) = item_refs else {
+                    return ::std::result::Result::Err(
+                        ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                            &format!(
+                                "batch delete operations on {} require ItemRefs::Id",
+                                stringify!(#ty_ident)
+                            )
+                        ).into()
+                    );
+                };
                 let __items = ids
                     .into_iter()
                     .map(|id| __placeholder_item!(#ty_ident, id))
@@ -771,6 +1285,393 @@ fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
                 #list_arm
                 #delete_all_arm
                 #replace_all_arm
+                #unsupported_arm
+            }
+        }
+    }
+}
+
+fn gen_child_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> TokenStream {
+    let ty_ident = &singleton.name;
+    let parent_ident = {
+        let parents = singleton
+            .parents
+            .as_ref()
+            .expect("singleton children must declare at least one parent");
+        &parents[0]
+    };
+    let manager_ident = method_ident_for("manage", ty_ident);
+    let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
+
+    let read_arm = quote! {
+        Read { item_ref } => {
+            let ::fractic_aws_apigateway::ItemRef::None { parent_id } = item_ref else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read operations on singleton {} require ItemRef::None",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let Some(parent_id) = parent_id else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read operations on child singleton {} require a valid parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
+            let __item = __repo.#manager_ident().get(&__tmp_parent).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
+        },
+    };
+
+    let create_arm = quote! {
+        Create { parent_id, after, data } => {
+            let Some(parent_id) = parent_id else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "create operations on child singleton {} require a valid parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            if after.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "create operations on singleton {} do not allow an `after` parameter",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
+            let __created = __repo.#manager_ident().set(&__tmp_parent, data).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::CreatedId { created_id: __created.id })
+        },
+    };
+
+    let delete_arm = quote! {
+        Delete { item_ref, non_recursive: _ } => {
+            let ::fractic_aws_apigateway::ItemRef::None { parent_id } = item_ref else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "delete operations on singleton {} require ItemRef::None",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let Some(parent_id) = parent_id else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "delete operations on child singleton {} require a valid parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
+            __repo.#manager_ident().delete(&__tmp_parent).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Unit)
+        },
+    };
+
+    let unsupported_arm = quote! {
+        List { .. }
+        | CreateMultiple { .. }
+        | ReadMultiple { .. }
+        | Update { .. }
+        | DeleteMultiple { .. }
+        | DeleteAll { .. }
+        | ReplaceAll { .. } => {
+            ::std::result::Result::Err(
+                ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                    &format!(
+                        "operation not supported for singleton {}",
+                        stringify!(#ty_ident)
+                    )
+                ).into()
+            )
+        },
+    };
+
+    quote! {
+        pub async fn #handler_ident(
+            operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
+        ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
+            use ::fractic_aws_apigateway::CrudOperation::*;
+            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
+            match operation {
+                #read_arm
+                #create_arm
+                #delete_arm
+                #unsupported_arm
+            }
+        }
+    }
+}
+
+fn gen_child_singleton_family_handler(
+    singleton_family: &SingletonFamilyDef,
+    repo_name: &Ident,
+) -> TokenStream {
+    let ty_ident = &singleton_family.name;
+    let parent_ident = {
+        let parents = singleton_family
+            .parents
+            .as_ref()
+            .expect("singleton family children must declare at least one parent");
+        &parents[0]
+    };
+    let manager_ident = method_ident_for("manage", ty_ident);
+    let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
+
+    let list_arm = quote! {
+        List { parent_id } => {
+            let Some(parent_id) = parent_id else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "list operations on singleton family {} require a valid parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
+            let __items = __repo.#manager_ident().query_all(&__tmp_parent).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
+        },
+    };
+
+    let read_arm = quote! {
+        Read { item_ref } => {
+            let ::fractic_aws_apigateway::ItemRef::Key { parent_id, key } = item_ref else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read operations on singleton family {} require ItemRef::Key",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let Some(parent_id) = parent_id else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read operations on singleton family {} require a valid parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
+            let __item = __repo.#manager_ident().get(&__tmp_parent, &key).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
+        },
+    };
+
+    let read_multiple_arm = quote! {
+        ReadMultiple { item_refs } => {
+            let ::fractic_aws_apigateway::ItemRefs::Key { parent_id, keys } = item_refs else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read-multiple operations on singleton family {} require ItemRefs::Key",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let Some(parent_id) = parent_id else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "read-multiple operations on singleton family {} require a valid parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
+            let __futs = keys.iter().map(|key| __repo.#manager_ident().get(&__tmp_parent, key));
+            let __items = ::futures_util::future::try_join_all(__futs).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
+        },
+    };
+
+    let create_arm = quote! {
+        Create { parent_id, after, data } => {
+            let Some(parent_id) = parent_id else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "create operations on singleton family {} require a valid parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            if after.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "create operations on singleton family {} do not allow an `after` parameter",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
+            let __created = __repo.#manager_ident().set(&__tmp_parent, data).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::CreatedId { created_id: __created.id })
+        },
+    };
+
+    let create_multiple_arm = quote! {
+        CreateMultiple { parent_id, after, data } => {
+            let Some(parent_id) = parent_id else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "batch create operations on singleton family {} require a valid parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            if after.is_some() {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "batch create operations on singleton family {} do not allow an `after` parameter",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            }
+            let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
+            let __created = __repo.#manager_ident().batch_set(&__tmp_parent, data).await?;
+            let __ids = __created.into_iter().map(|x| x.id).collect::<::std::vec::Vec<_>>();
+            ::std::result::Result::Ok(__CrudOperationResult::CreatedIds { created_ids: __ids })
+        },
+    };
+
+    let delete_arm = quote! {
+        Delete { item_ref, non_recursive: _ } => {
+            let ::fractic_aws_apigateway::ItemRef::Key { parent_id, key } = item_ref else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "delete operations on singleton family {} require ItemRef::Key",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let Some(parent_id) = parent_id else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "delete operations on singleton family {} require a valid parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
+            __repo.#manager_ident().delete(&__tmp_parent, &key).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Unit)
+        },
+    };
+
+    let delete_multiple_arm = quote! {
+        DeleteMultiple { item_refs, non_recursive: _ } => {
+            let ::fractic_aws_apigateway::ItemRefs::Key { parent_id, keys } = item_refs else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "batch delete operations on singleton family {} require ItemRefs::Key",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let Some(parent_id) = parent_id else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "batch delete operations on singleton family {} require a valid parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
+            let __keys = keys.iter().map(|k| k.as_str()).collect::<::std::vec::Vec<_>>();
+            __repo.#manager_ident().batch_delete(&__tmp_parent, __keys).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Unit)
+        },
+    };
+
+    let delete_all_arm = quote! {
+        DeleteAll { parent_id, non_recursive: _ } => {
+            let Some(parent_id) = parent_id else {
+                return ::std::result::Result::Err(
+                    ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                        &format!(
+                            "delete-all operations on singleton family {} require a valid parent ID",
+                            stringify!(#ty_ident)
+                        )
+                    ).into()
+                );
+            };
+            let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
+            __repo.#manager_ident().batch_delete_all(&__tmp_parent).await?;
+            ::std::result::Result::Ok(__CrudOperationResult::Unit)
+        },
+    };
+
+    let unsupported_arm = quote! {
+        Update { .. } | ReplaceAll { .. } => {
+            ::std::result::Result::Err(
+                ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
+                    &format!(
+                        "operation not supported for singleton family {}",
+                        stringify!(#ty_ident)
+                    )
+                ).into()
+            )
+        },
+    };
+
+    quote! {
+        pub async fn #handler_ident(
+            operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
+        ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
+            use ::fractic_aws_apigateway::CrudOperation::*;
+            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
+            match operation {
+                #list_arm
+                #read_arm
+                #read_multiple_arm
+                #create_arm
+                #create_multiple_arm
+                #delete_arm
+                #delete_multiple_arm
+                #delete_all_arm
                 #unsupported_arm
             }
         }
