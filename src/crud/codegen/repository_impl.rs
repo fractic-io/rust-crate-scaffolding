@@ -183,7 +183,7 @@ fn gen_field_init_impl(
         #method_ident: #manage_ty
     });
     inits.push(quote! {
-        #method_ident: #init_ty::new(
+        #method_ident: <#init_ty>::new(
             dynamo_util.clone(),
             crud_algorithms.clone(),
         )
