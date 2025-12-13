@@ -7,7 +7,9 @@ use quote::quote;
 use syn::Ident;
 
 use crate::{
-    crud::model::{BatchDef, ConfigModel, SingletonDef, SingletonFamilyDef, StandardDef},
+    crud::model::{
+        BatchDef, ConfigModel, HasParents, SingletonDef, SingletonFamilyDef, StandardDef,
+    },
     helpers::to_snake_case,
 };
 
@@ -55,34 +57,12 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         .collect();
 
     let child_items: Vec<TokenStream> = {
-        fn parent_of_standard(child: &StandardDef) -> &Ident {
+        fn parent_of(child: &impl HasParents) -> &Ident {
             // The parent ident is used only to create dummy objects for unchecked
             // methods. Since the dummy object is only needed to satisfy the type
             // system, we can use any valid parent type (so use the first one).
             child
-                .parents
-                .as_ref()
-                .and_then(|p| p.first())
-                .expect("child items should be verified to have at least one parent")
-        }
-        fn parent_of_batch(child: &BatchDef) -> &Ident {
-            child
-                .parents
-                .as_ref()
-                .and_then(|p| p.first())
-                .expect("child items should be verified to have at least one parent")
-        }
-        fn parent_of_singleton(child: &SingletonDef) -> &Ident {
-            child
-                .parents
-                .as_ref()
-                .and_then(|p| p.first())
-                .expect("child items should be verified to have at least one parent")
-        }
-        fn parent_of_singleton_family(child: &SingletonFamilyDef) -> &Ident {
-            child
-                .parents
-                .as_ref()
+                .parents()
                 .and_then(|p| p.first())
                 .expect("child items should be verified to have at least one parent")
         }
@@ -90,36 +70,34 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             .ordered_objects
             .iter()
             .filter(|child| child.parents.is_some())
-            .map(|child| gen_child_standard_item(child, parent_of_standard(child), true))
+            .map(|child| gen_child_standard_item(child, parent_of(child), true))
             .chain(
                 model
                     .unordered_objects
                     .iter()
                     .filter(|child| child.parents.is_some())
-                    .map(|child| gen_child_standard_item(child, parent_of_standard(child), false)),
+                    .map(|child| gen_child_standard_item(child, parent_of(child), false)),
             )
             .chain(
                 model
                     .batch_objects
                     .iter()
                     .filter(|child| child.parents.is_some())
-                    .map(|child| gen_child_batch_item(child, parent_of_batch(child))),
+                    .map(|child| gen_child_batch_item(child, parent_of(child))),
             )
             .chain(
                 model
                     .singleton_objects
                     .iter()
                     .filter(|child| child.parents.is_some())
-                    .map(|child| gen_child_singleton_item(child, parent_of_singleton(child))),
+                    .map(|child| gen_child_singleton_item(child, parent_of(child))),
             )
             .chain(
                 model
                     .singleton_family_objects
                     .iter()
                     .filter(|child| child.parents.is_some())
-                    .map(|child| {
-                        gen_child_singleton_family_item(child, parent_of_singleton_family(child))
-                    }),
+                    .map(|child| gen_child_singleton_family_item(child, parent_of(child))),
             )
             .collect()
     };

@@ -220,3 +220,28 @@ fn validate_parents(
     }
     Ok(parents)
 }
+
+pub trait HasParents {
+    fn parents(&self) -> Option<&[Ident]>;
+}
+
+impl HasParents for StandardDef {
+    fn parents(&self) -> Option<&[Ident]> {
+        self.parents.as_deref()
+    }
+}
+impl HasParents for BatchDef {
+    fn parents(&self) -> Option<&[Ident]> {
+        self.parents.as_deref()
+    }
+}
+impl HasParents for SingletonDef {
+    fn parents(&self) -> Option<&[Ident]> {
+        self.parents.as_deref()
+    }
+}
+impl HasParents for SingletonFamilyDef {
+    fn parents(&self) -> Option<&[Ident]> {
+        self.parents.as_deref()
+    }
+}
