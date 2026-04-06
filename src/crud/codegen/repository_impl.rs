@@ -21,6 +21,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     for ordered in &model.ordered_objects {
         let method_ident = method_ident_for("manage", &ordered.name);
         let ty_ident = &ordered.name;
+        let db_ident = db_ident_for(ordered.is_archive);
         let manage_ty = if ordered.parents.is_none() {
             root_manage_ty(ObjectType::Ordered, ordered.has_children(), ty_ident)
         } else {
@@ -31,6 +32,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             &mut ordered_inits,
             &mut ordered_trait_impls,
             &method_ident,
+            db_ident,
             manage_ty,
         );
     }
@@ -42,6 +44,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     for unordered in &model.unordered_objects {
         let method_ident = method_ident_for("manage", &unordered.name);
         let ty_ident = &unordered.name;
+        let db_ident = db_ident_for(unordered.is_archive);
         let manage_ty = if unordered.parents.is_none() {
             root_manage_ty(ObjectType::Unordered, unordered.has_children(), ty_ident)
         } else {
@@ -52,6 +55,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             &mut unordered_inits,
             &mut unordered_trait_impls,
             &method_ident,
+            db_ident,
             manage_ty,
         );
     }
@@ -63,6 +67,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     for batch in &model.batch_objects {
         let method_ident = method_ident_for("manage", &batch.name);
         let ty_ident = &batch.name;
+        let db_ident = db_ident_for(batch.is_archive);
         let manage_ty = if batch.parents.is_none() {
             root_manage_ty(ObjectType::Batch, false, ty_ident)
         } else {
@@ -73,6 +78,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             &mut batch_inits,
             &mut batch_trait_impls,
             &method_ident,
+            db_ident,
             manage_ty,
         );
     }
@@ -84,6 +90,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     for singleton in &model.singleton_objects {
         let method_ident = method_ident_for("manage", &singleton.name);
         let ty_ident = &singleton.name;
+        let db_ident = db_ident_for(singleton.is_archive);
         let manage_ty = if singleton.parents.is_none() {
             root_manage_ty(ObjectType::Singleton, false, ty_ident)
         } else {
@@ -94,6 +101,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             &mut singleton_inits,
             &mut singleton_trait_impls,
             &method_ident,
+            db_ident,
             manage_ty,
         );
     }
@@ -105,6 +113,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     for singleton_family in &model.singleton_family_objects {
         let method_ident = method_ident_for("manage", &singleton_family.name);
         let ty_ident = &singleton_family.name;
+        let db_ident = db_ident_for(singleton_family.is_archive);
         let manage_ty = if singleton_family.parents.is_none() {
             root_manage_ty(ObjectType::SingletonFamily, false, ty_ident)
         } else {
@@ -115,11 +124,12 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             &mut singleton_family_inits,
             &mut singleton_family_trait_impls,
             &method_ident,
+            db_ident,
             manage_ty,
         );
     }
 
-    let out = quote! {
+    let out_case1_noarchive = quote! {
         pub struct #impl_struct_ident {
             #(#ordered_fields,)*
             #(#unordered_fields,)*
@@ -130,8 +140,9 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
 
         impl #impl_struct_ident {
             pub async fn new(ctx: __ctx!()) -> ::std::result::Result<Self, ::fractic_server_error::ServerError> {
-                let dynamo_util = ::std::sync::Arc::new(::fractic_aws_dynamo::util::DynamoUtil::new(ctx, ctx.$ctx_db_method()).await?);
-                let crud_algorithms = ::std::sync::Arc::new(<$crud_algorithms>::new(dynamo_util.clone()));
+                let main_db = ::std::sync::Arc::new(::fractic_aws_dynamo::util::DynamoUtil::new(ctx, ctx.$ctx_main_db_method()).await?);
+                let archive_db = main_db.clone();
+                let crud_algorithms = ::std::sync::Arc::new(<$crud_algorithms>::new(main_db.clone()));
                 Ok(Self {
                     #(#ordered_inits,)*
                     #(#unordered_inits,)*
@@ -150,18 +161,63 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             #(#singleton_family_trait_impls)*
         }
     };
-    let out_clone = out.clone();
+    let out_case1_clone = out_case1_noarchive.clone();
+
+    let out_case2_witharchive = quote! {
+        pub struct #impl_struct_ident {
+            #(#ordered_fields,)*
+            #(#unordered_fields,)*
+            #(#batch_fields,)*
+            #(#singleton_fields,)*
+            #(#singleton_family_fields,)*
+        }
+
+        impl #impl_struct_ident {
+            pub async fn new(ctx: __ctx!()) -> ::std::result::Result<Self, ::fractic_server_error::ServerError> {
+                let main_db = ::std::sync::Arc::new(::fractic_aws_dynamo::util::DynamoUtil::new(ctx, ctx.$ctx_main_db_method()).await?);
+                let archive_db = ::std::sync::Arc::new(::fractic_aws_dynamo::util::DynamoUtil::new(ctx, ctx.$ctx_archive_db_method()).await?);
+                let crud_algorithms = ::std::sync::Arc::new(<$crud_algorithms>::new(
+                    main_db.clone(),
+                    archive_db.clone(),
+                ));
+                Ok(Self {
+                    #(#ordered_inits,)*
+                    #(#unordered_inits,)*
+                    #(#batch_inits,)*
+                    #(#singleton_inits,)*
+                    #(#singleton_family_inits,)*
+                })
+            }
+        }
+
+        impl #repo_name for #impl_struct_ident {
+            #(#ordered_trait_impls)*
+            #(#unordered_trait_impls)*
+            #(#batch_trait_impls)*
+            #(#singleton_trait_impls)*
+            #(#singleton_family_trait_impls)*
+        }
+    };
+    let out_case2_clone = out_case2_witharchive.clone();
 
     quote! {
         #[allow(unused_macros)]
         macro_rules! #macro_name_ident {
-            (dyn $ctx_view:path => $ctx_db_method:ident, $crud_algorithms:ty) => {
+            (dyn $ctx_view:path => $ctx_main_db_method:ident, $crud_algorithms:ty) => {
                 macro_rules! __ctx { () => { &dyn $ctx_view } }
-                #out
+                #out_case1_noarchive
             };
-            ($ctx:path => $ctx_db_method:ident, $crud_algorithms:ty) => {
+            (dyn $ctx_view:path => ($ctx_main_db_method:ident, $ctx_archive_db_method:ident), $crud_algorithms:ty) => {
+                macro_rules! __ctx { () => { &dyn $ctx_view } }
+                #out_case2_witharchive
+            };
+            ($ctx:path => $ctx_main_db_method:ident, $crud_algorithms:ty) => {
                 macro_rules! __ctx { () => { & $ctx } }
-                #out_clone
+                #out_case1_clone
+            };
+            ($ctx:path => ($ctx_main_db_method:ident, $ctx_archive_db_method:ident), $crud_algorithms:ty) => {
+                macro_rules! __ctx { () => { & $ctx } }
+                #out_case2_clone
             };
         }
 
@@ -175,6 +231,7 @@ fn gen_field_init_impl(
     inits: &mut Vec<TokenStream>,
     trait_impls: &mut Vec<TokenStream>,
     method_ident: &Ident,
+    db_ident: TokenStream,
     manage_ty: TokenStream,
 ) {
     let init_ty = manage_ty.clone();
@@ -184,7 +241,7 @@ fn gen_field_init_impl(
     });
     inits.push(quote! {
         #method_ident: <#init_ty>::new(
-            dynamo_util.clone(),
+            #db_ident.clone(),
             crud_algorithms.clone(),
         )
     });
@@ -199,4 +256,12 @@ fn method_ident_for(prefix: &str, ident: &Ident) -> Ident {
     let snake = to_snake_case(&ident.to_string());
     let name = format!("{}_{}", prefix, snake);
     Ident::new(&name, ident.span())
+}
+
+fn db_ident_for(is_archive: bool) -> TokenStream {
+    if is_archive {
+        quote! { archive_db }
+    } else {
+        quote! { main_db }
+    }
 }
