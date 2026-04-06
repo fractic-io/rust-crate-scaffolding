@@ -15,6 +15,7 @@ pub struct ConfigModel {
 
 #[derive(Debug)]
 pub struct StandardDef {
+    pub is_archive: bool,
     pub name: Ident,
     pub parents: Option<Vec<Ident>>,
     pub ordered_children: Vec<Ident>,
@@ -26,18 +27,21 @@ pub struct StandardDef {
 
 #[derive(Debug)]
 pub struct BatchDef {
+    pub is_archive: bool,
     pub name: Ident,
     pub parents: Option<Vec<Ident>>,
 }
 
 #[derive(Debug)]
 pub struct SingletonDef {
+    pub is_archive: bool,
     pub name: Ident,
     pub parents: Option<Vec<Ident>>,
 }
 
 #[derive(Debug)]
 pub struct SingletonFamilyDef {
+    pub is_archive: bool,
     pub name: Ident,
     pub parents: Option<Vec<Ident>>,
 }
@@ -53,7 +57,12 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
         let mut singleton_family_objects = Vec::new();
 
         for obj in value.objects {
-            let ast::ObjectDef { kind, name, props } = obj;
+            let ast::ObjectDef {
+                is_archive,
+                kind,
+                name,
+                props,
+            } = obj;
             let ast::ObjectPropsRaw {
                 parent,
                 ordered_children,
@@ -72,6 +81,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         ));
                     }
                     unordered_objects.push(StandardDef {
+                        is_archive,
                         name,
                         parents: None,
                         ordered_children,
@@ -84,6 +94,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                 ast::ObjectKind::Ordered => {
                     let parents = validate_parents(name.span(), "`ordered`", parent)?;
                     ordered_objects.push(StandardDef {
+                        is_archive,
                         name,
                         parents,
                         ordered_children,
@@ -96,6 +107,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                 ast::ObjectKind::Unordered => {
                     let parents = validate_parents(name.span(), "`unordered`", parent)?;
                     unordered_objects.push(StandardDef {
+                        is_archive,
                         name,
                         parents,
                         ordered_children,
@@ -120,7 +132,11 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                              `singleton_family_children`",
                         ));
                     }
-                    batch_objects.push(BatchDef { name, parents });
+                    batch_objects.push(BatchDef {
+                        is_archive,
+                        name,
+                        parents,
+                    });
                 }
                 ast::ObjectKind::Singleton => {
                     if !ordered_children.is_empty()
@@ -146,6 +162,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                     }
 
                     singleton_objects.push(SingletonDef {
+                        is_archive,
                         name,
                         parents: parent,
                     });
@@ -174,6 +191,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                     }
 
                     singleton_family_objects.push(SingletonFamilyDef {
+                        is_archive,
                         name,
                         parents: parent,
                     });
@@ -243,5 +261,34 @@ impl HasParents for SingletonDef {
 impl HasParents for SingletonFamilyDef {
     fn parents(&self) -> Option<&[Ident]> {
         self.parents.as_deref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConfigModel;
+    use crate::crud::ast::ConfigAst;
+
+    #[test]
+    fn carries_archive_flags_into_semantic_model() {
+        let ast: ConfigAst = syn::parse_str(
+            r#"
+            MyRepo;
+            archive ordered PersonaPrinciple {
+                parent: Persona
+            }
+            unordered PersonaSample {
+                parent: Persona
+            }
+            archive singleton Note {}
+            "#,
+        )
+        .unwrap();
+
+        let model = ConfigModel::try_from(ast).unwrap();
+
+        assert!(model.ordered_objects[0].is_archive);
+        assert!(!model.unordered_objects[0].is_archive);
+        assert!(model.singleton_objects[0].is_archive);
     }
 }

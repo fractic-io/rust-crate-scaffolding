@@ -13,7 +13,7 @@ impl Parse for ConfigAst {
         // Expect a repository name first, followed by a semicolon.
         let repository_name: Ident = input.parse()?;
         if !input.peek(Token![;]) {
-            if ObjectKind::is_keyword_ident(&repository_name) {
+            if ObjectKind::is_object_leading_ident(&repository_name) {
                 // Provide a more helpful error if they started with an object
                 // keyword.
                 return Err(Error::new(
@@ -72,8 +72,9 @@ impl ObjectKind {
         }
     }
 
-    fn is_keyword_ident(ident: &Ident) -> bool {
-        Self::from_str(ident.to_string().as_str()).is_some()
+    fn is_object_leading_ident(ident: &Ident) -> bool {
+        let ident_str = ident.to_string();
+        ident_str == "archive" || Self::from_str(ident_str.as_str()).is_some()
     }
 }
 
@@ -97,6 +98,7 @@ impl Parse for ObjectKind {
 
 #[derive(Debug)]
 pub struct ObjectDef {
+    pub is_archive: bool,
     pub kind: ObjectKind,
     pub name: Ident,
     pub props: ObjectPropsRaw,
@@ -104,6 +106,7 @@ pub struct ObjectDef {
 
 impl Parse for ObjectDef {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
+        let is_archive = parse_archive_prefix(input)?;
         let kind: ObjectKind = input.parse()?;
         let name: Ident = input.parse()?;
         let content;
@@ -191,6 +194,7 @@ impl Parse for ObjectDef {
         }
 
         Ok(Self {
+            is_archive,
             kind,
             name,
             props: ObjectPropsRaw {
@@ -203,6 +207,17 @@ impl Parse for ObjectDef {
             },
         })
     }
+}
+
+fn parse_archive_prefix(input: ParseStream<'_>) -> Result<bool> {
+    let fork = input.fork();
+    if let Ok(ident) = fork.parse::<Ident>() {
+        if ident.to_string() == "archive" {
+            let _: Ident = input.parse()?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 #[derive(Debug, Default)]
@@ -232,4 +247,45 @@ fn parse_ident_list(input: ParseStream<'_>) -> Result<Vec<Ident>> {
         items.push(next);
     }
     Ok(items)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ConfigAst, ObjectKind};
+
+    #[test]
+    fn parses_archive_prefix_on_object_definitions() {
+        let ast: ConfigAst = syn::parse_str(
+            r#"
+            MyRepo;
+            archive ordered PersonaPrinciple {
+                parent: Persona
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(ast.objects.len(), 1);
+        let object = &ast.objects[0];
+        assert!(object.is_archive);
+        assert_eq!(object.kind, ObjectKind::Ordered);
+        assert_eq!(object.name.to_string(), "PersonaPrinciple");
+    }
+
+    #[test]
+    fn treats_archive_as_reserved_object_leading_keyword() {
+        let err = syn::parse_str::<ConfigAst>(
+            r#"
+            archive ordered PersonaPrinciple {
+                parent: Persona
+            }
+            "#,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("expected repository name before object definitions")
+        );
+    }
 }
