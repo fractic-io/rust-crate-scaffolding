@@ -119,7 +119,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         );
     }
 
-    let out = quote! {
+    let out_case1_noarchive = quote! {
         pub struct #impl_struct_ident {
             #(#ordered_fields,)*
             #(#unordered_fields,)*
@@ -131,6 +131,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         impl #impl_struct_ident {
             pub async fn new(ctx: __ctx!()) -> ::std::result::Result<Self, ::fractic_server_error::ServerError> {
                 let dynamo_util = ::std::sync::Arc::new(::fractic_aws_dynamo::util::DynamoUtil::new(ctx, ctx.$ctx_db_method()).await?);
+                let archive_dynamo_util = dynamo_util.clone();
                 let crud_algorithms = ::std::sync::Arc::new(<$crud_algorithms>::new(dynamo_util.clone()));
                 Ok(Self {
                     #(#ordered_inits,)*
@@ -150,18 +151,63 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             #(#singleton_family_trait_impls)*
         }
     };
-    let out_clone = out.clone();
+    let out_case1_clone = out_case1_noarchive.clone();
+
+    let out_case2_witharchive = quote! {
+        pub struct #impl_struct_ident {
+            #(#ordered_fields,)*
+            #(#unordered_fields,)*
+            #(#batch_fields,)*
+            #(#singleton_fields,)*
+            #(#singleton_family_fields,)*
+        }
+
+        impl #impl_struct_ident {
+            pub async fn new(ctx: __ctx!()) -> ::std::result::Result<Self, ::fractic_server_error::ServerError> {
+                let dynamo_util = ::std::sync::Arc::new(::fractic_aws_dynamo::util::DynamoUtil::new(ctx, ctx.$ctx_db_method()).await?);
+                let archive_dynamo_util = ::std::sync::Arc::new(::fractic_aws_dynamo::util::DynamoUtil::new(ctx, ctx.$ctx_archive_db_method()).await?);
+                let crud_algorithms = ::std::sync::Arc::new(<$crud_algorithms>::new(
+                    dynamo_util.clone(),
+                    archive_dynamo_util.clone(),
+                ));
+                Ok(Self {
+                    #(#ordered_inits,)*
+                    #(#unordered_inits,)*
+                    #(#batch_inits,)*
+                    #(#singleton_inits,)*
+                    #(#singleton_family_inits,)*
+                })
+            }
+        }
+
+        impl #repo_name for #impl_struct_ident {
+            #(#ordered_trait_impls)*
+            #(#unordered_trait_impls)*
+            #(#batch_trait_impls)*
+            #(#singleton_trait_impls)*
+            #(#singleton_family_trait_impls)*
+        }
+    };
+    let out_case2_clone = out_case2_witharchive.clone();
 
     quote! {
         #[allow(unused_macros)]
         macro_rules! #macro_name_ident {
             (dyn $ctx_view:path => $ctx_db_method:ident, $crud_algorithms:ty) => {
                 macro_rules! __ctx { () => { &dyn $ctx_view } }
-                #out
+                #out_case1_noarchive
+            };
+            (dyn $ctx_view:path => ($ctx_db_method:ident, $ctx_archive_db_method:ident), $crud_algorithms:ty) => {
+                macro_rules! __ctx { () => { &dyn $ctx_view } }
+                #out_case2_witharchive
             };
             ($ctx:path => $ctx_db_method:ident, $crud_algorithms:ty) => {
                 macro_rules! __ctx { () => { & $ctx } }
-                #out_clone
+                #out_case1_clone
+            };
+            ($ctx:path => ($ctx_db_method:ident, $ctx_archive_db_method:ident), $crud_algorithms:ty) => {
+                macro_rules! __ctx { () => { & $ctx } }
+                #out_case2_clone
             };
         }
 
