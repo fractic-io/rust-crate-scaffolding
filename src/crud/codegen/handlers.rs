@@ -3,7 +3,7 @@ use quote::quote;
 use syn::Ident;
 
 use crate::{
-    crud::model::{BatchDef, ConfigModel, SingletonDef, SingletonFamilyDef, StandardDef},
+    crud::model::{BatchDef, ConfigModel, SingletonDef, IndexedSingletonDef, StandardDef},
     helpers::to_snake_case,
 };
 
@@ -67,11 +67,11 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         )
         .chain(
             model
-                .singleton_family_objects
+                .indexed_singleton_objects
                 .iter()
-                .filter(|singleton_family| singleton_family.parents.is_none())
-                .map(|singleton_family| {
-                    gen_root_singleton_family_handler(singleton_family, repo_name)
+                .filter(|indexed_singleton| indexed_singleton.parents.is_none())
+                .map(|indexed_singleton| {
+                    gen_root_indexed_singleton_handler(indexed_singleton, repo_name)
                 }),
         )
         .collect::<Vec<_>>();
@@ -105,11 +105,11 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         )
         .chain(
             model
-                .singleton_family_objects
+                .indexed_singleton_objects
                 .iter()
-                .filter(|singleton_family| singleton_family.parents.is_some())
-                .map(|singleton_family| {
-                    gen_child_singleton_family_handler(singleton_family, repo_name)
+                .filter(|indexed_singleton| indexed_singleton.parents.is_some())
+                .map(|indexed_singleton| {
+                    gen_child_indexed_singleton_handler(indexed_singleton, repo_name)
                 }),
         )
         .collect::<Vec<_>>();
@@ -649,11 +649,11 @@ fn gen_root_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> To
     }
 }
 
-fn gen_root_singleton_family_handler(
-    singleton_family: &SingletonFamilyDef,
+fn gen_root_indexed_singleton_handler(
+    indexed_singleton: &IndexedSingletonDef,
     repo_name: &Ident,
 ) -> TokenStream {
-    let ty_ident = &singleton_family.name;
+    let ty_ident = &indexed_singleton.name;
     let manager_ident = method_ident_for("manage", ty_ident);
     let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
 
@@ -663,7 +663,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "list operations on root singleton family {} do not allow a parent ID",
+                            "list operations on root indexed singleton {} do not allow a parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -680,7 +680,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "read operations on singleton family {} require ItemRef::Key",
+                            "read operations on indexed singleton {} require ItemRef::Key",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -690,7 +690,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "read operations on root singleton family {} do not allow a parent ID",
+                            "read operations on root indexed singleton {} do not allow a parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -707,7 +707,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "read-multiple operations on singleton family {} require ItemRefs::Key",
+                            "read-multiple operations on indexed singleton {} require ItemRefs::Key",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -717,7 +717,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "read-multiple operations on root singleton family {} do not allow a parent ID",
+                            "read-multiple operations on root indexed singleton {} do not allow a parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -735,7 +735,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "create operations on root singleton family {} do not allow a parent ID",
+                            "create operations on root indexed singleton {} do not allow a parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -745,7 +745,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "create operations on singleton family {} do not allow an `after` parameter",
+                            "create operations on indexed singleton {} do not allow an `after` parameter",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -762,7 +762,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "batch create operations on root singleton family {} do not allow a parent ID",
+                            "batch create operations on root indexed singleton {} do not allow a parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -772,7 +772,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "batch create operations on singleton family {} do not allow an `after` parameter",
+                            "batch create operations on indexed singleton {} do not allow an `after` parameter",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -790,7 +790,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "delete operations on singleton family {} require ItemRef::Key",
+                            "delete operations on indexed singleton {} require ItemRef::Key",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -800,7 +800,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "delete operations on root singleton family {} do not allow a parent ID",
+                            "delete operations on root indexed singleton {} do not allow a parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -817,7 +817,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "batch delete operations on singleton family {} require ItemRefs::Key",
+                            "batch delete operations on indexed singleton {} require ItemRefs::Key",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -827,7 +827,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "batch delete operations on root singleton family {} do not allow a parent ID",
+                            "batch delete operations on root indexed singleton {} do not allow a parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -845,7 +845,7 @@ fn gen_root_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "delete-all operations on root singleton family {} do not allow a parent ID",
+                            "delete-all operations on root indexed singleton {} do not allow a parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -861,7 +861,7 @@ fn gen_root_singleton_family_handler(
             ::std::result::Result::Err(
                 ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                     &format!(
-                        "operation not supported for singleton family {}",
+                        "operation not supported for indexed singleton {}",
                         stringify!(#ty_ident)
                     )
                 ).into()
@@ -1422,16 +1422,16 @@ fn gen_child_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> T
     }
 }
 
-fn gen_child_singleton_family_handler(
-    singleton_family: &SingletonFamilyDef,
+fn gen_child_indexed_singleton_handler(
+    indexed_singleton: &IndexedSingletonDef,
     repo_name: &Ident,
 ) -> TokenStream {
-    let ty_ident = &singleton_family.name;
+    let ty_ident = &indexed_singleton.name;
     let parent_ident = {
-        let parents = singleton_family
+        let parents = indexed_singleton
             .parents
             .as_ref()
-            .expect("singleton family children must declare at least one parent");
+            .expect("indexed singleton children must declare at least one parent");
         &parents[0]
     };
     let manager_ident = method_ident_for("manage", ty_ident);
@@ -1443,7 +1443,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "list operations on singleton family {} require a valid parent ID",
+                            "list operations on indexed singleton {} require a valid parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1461,7 +1461,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "read operations on singleton family {} require ItemRef::Key",
+                            "read operations on indexed singleton {} require ItemRef::Key",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1471,7 +1471,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "read operations on singleton family {} require a valid parent ID",
+                            "read operations on indexed singleton {} require a valid parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1489,7 +1489,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "read-multiple operations on singleton family {} require ItemRefs::Key",
+                            "read-multiple operations on indexed singleton {} require ItemRefs::Key",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1499,7 +1499,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "read-multiple operations on singleton family {} require a valid parent ID",
+                            "read-multiple operations on indexed singleton {} require a valid parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1518,7 +1518,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "create operations on singleton family {} require a valid parent ID",
+                            "create operations on indexed singleton {} require a valid parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1528,7 +1528,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "create operations on singleton family {} do not allow an `after` parameter",
+                            "create operations on indexed singleton {} do not allow an `after` parameter",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1546,7 +1546,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "batch create operations on singleton family {} require a valid parent ID",
+                            "batch create operations on indexed singleton {} require a valid parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1556,7 +1556,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "batch create operations on singleton family {} do not allow an `after` parameter",
+                            "batch create operations on indexed singleton {} do not allow an `after` parameter",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1575,7 +1575,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "delete operations on singleton family {} require ItemRef::Key",
+                            "delete operations on indexed singleton {} require ItemRef::Key",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1585,7 +1585,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "delete operations on singleton family {} require a valid parent ID",
+                            "delete operations on indexed singleton {} require a valid parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1603,7 +1603,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "batch delete operations on singleton family {} require ItemRefs::Key",
+                            "batch delete operations on indexed singleton {} require ItemRefs::Key",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1613,7 +1613,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "batch delete operations on singleton family {} require a valid parent ID",
+                            "batch delete operations on indexed singleton {} require a valid parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1632,7 +1632,7 @@ fn gen_child_singleton_family_handler(
                 return ::std::result::Result::Err(
                     ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                         &format!(
-                            "delete-all operations on singleton family {} require a valid parent ID",
+                            "delete-all operations on indexed singleton {} require a valid parent ID",
                             stringify!(#ty_ident)
                         )
                     ).into()
@@ -1649,7 +1649,7 @@ fn gen_child_singleton_family_handler(
             ::std::result::Result::Err(
                 ::fractic_aws_apigateway::InvalidCrudRequestParameters::new(
                     &format!(
-                        "operation not supported for singleton family {}",
+                        "operation not supported for indexed singleton {}",
                         stringify!(#ty_ident)
                     )
                 ).into()

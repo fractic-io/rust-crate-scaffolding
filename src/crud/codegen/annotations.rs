@@ -8,7 +8,7 @@ use syn::Ident;
 
 use crate::{
     crud::model::{
-        BatchDef, ConfigModel, HasParents, SingletonDef, SingletonFamilyDef, StandardDef,
+        BatchDef, ConfigModel, HasParents, SingletonDef, IndexedSingletonDef, StandardDef,
     },
     helpers::to_snake_case,
 };
@@ -49,10 +49,10 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         )
         .chain(
             model
-                .singleton_family_objects
+                .indexed_singleton_objects
                 .iter()
-                .filter(|singleton_family| singleton_family.parents.is_none())
-                .map(gen_root_singleton_family_item),
+                .filter(|indexed_singleton| indexed_singleton.parents.is_none())
+                .map(gen_root_indexed_singleton_item),
         )
         .collect();
 
@@ -94,10 +94,10 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             )
             .chain(
                 model
-                    .singleton_family_objects
+                    .indexed_singleton_objects
                     .iter()
                     .filter(|child| child.parents.is_some())
-                    .map(|child| gen_child_singleton_family_item(child, parent_of(child))),
+                    .map(|child| gen_child_indexed_singleton_item(child, parent_of(child))),
             )
             .collect()
     };
@@ -368,8 +368,8 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
         })
         .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
-    let (singleton_family_child_methods, singleton_family_child_impls) = root
-        .singleton_family_children
+    let (indexed_singleton_child_methods, indexed_singleton_child_impls) = root
+        .indexed_singleton_children
         .iter()
         .map(|child_name| {
             let child_ident = child_name;
@@ -437,7 +437,7 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
             #(#unordered_child_methods)*
             #(#batch_methods)*
             #(#singleton_child_methods)*
-            #(#singleton_family_child_methods)*
+            #(#indexed_singleton_child_methods)*
         }
         impl #trait_ident for #ty_ident {
             #basic_impls
@@ -447,7 +447,7 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
             #(#unordered_child_impls)*
             #(#batch_impls)*
             #(#singleton_child_impls)*
-            #(#singleton_family_child_impls)*
+            #(#indexed_singleton_child_impls)*
         }
     }
 }
@@ -567,8 +567,8 @@ fn gen_root_singleton_item(singleton: &SingletonDef) -> TokenStream {
     }
 }
 
-fn gen_root_singleton_family_item(singleton_family: &SingletonFamilyDef) -> TokenStream {
-    let ty_ident = &singleton_family.name;
+fn gen_root_indexed_singleton_item(indexed_singleton: &IndexedSingletonDef) -> TokenStream {
+    let ty_ident = &indexed_singleton.name;
     let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
     let manager_ident = method_ident_for("manage", ty_ident);
     let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
@@ -876,11 +876,11 @@ fn gen_child_standard_item(
         })
         .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
 
-    let (singleton_family_child_methods, singleton_family_child_impls) = child
-        .singleton_family_children
+    let (indexed_singleton_child_methods, indexed_singleton_child_impls) = child
+        .indexed_singleton_children
         .iter()
-        .map(|singleton_family_child| {
-            let s_ident = singleton_family_child;
+        .map(|indexed_singleton_child| {
+            let s_ident = indexed_singleton_child;
             let s_data_ident = Ident::new(&format!("{}Data", s_ident), s_ident.span());
             let s_manager_ident = method_ident_for("manage", s_ident);
             let base_pascal = stripped_pascal(ty_ident, s_ident);
@@ -943,7 +943,7 @@ fn gen_child_standard_item(
             #(#unordered_grandchild_methods)*
             #(#batch_methods)*
             #(#singleton_child_methods)*
-            #(#singleton_family_child_methods)*
+            #(#indexed_singleton_child_methods)*
         }
         impl #trait_ident for #ty_ident {
             #basic_impls
@@ -953,7 +953,7 @@ fn gen_child_standard_item(
             #(#unordered_grandchild_impls)*
             #(#batch_impls)*
             #(#singleton_child_impls)*
-            #(#singleton_family_child_impls)*
+            #(#indexed_singleton_child_impls)*
         }
     }
 }
@@ -1007,11 +1007,11 @@ fn gen_child_singleton_item(singleton: &SingletonDef, parent_ident: &Ident) -> T
     }
 }
 
-fn gen_child_singleton_family_item(
-    singleton_family: &SingletonFamilyDef,
+fn gen_child_indexed_singleton_item(
+    indexed_singleton: &IndexedSingletonDef,
     parent_ident: &Ident,
 ) -> TokenStream {
-    let ty_ident = &singleton_family.name;
+    let ty_ident = &indexed_singleton.name;
     let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
     let parent_data_ident = Ident::new(&format!("{}Data", parent_ident), parent_ident.span());
     let manager_ident = method_ident_for("manage", ty_ident);

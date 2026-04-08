@@ -111,28 +111,28 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         });
     }
 
-    let mut singleton_family_parent_of_impls = Vec::new();
-    let mut singleton_family_manage_methods = Vec::new();
-    for singleton_family in &model.singleton_family_objects {
+    let mut indexed_singleton_parent_of_impls = Vec::new();
+    let mut indexed_singleton_manage_methods = Vec::new();
+    for indexed_singleton in &model.indexed_singleton_objects {
         // Parent-child relationships.
-        let type_ident = &singleton_family.name;
-        if let Some(parents) = &singleton_family.parents {
+        let type_ident = &indexed_singleton.name;
+        if let Some(parents) = &indexed_singleton.parents {
             let parent_impls = parents.iter().map(|parent_ident| {
                 quote! {
                     impl ::fractic_aws_dynamo::ext::crud::ParentOf<#type_ident> for #parent_ident { }
                 }
             });
-            singleton_family_parent_of_impls.push(quote! { #(#parent_impls)* });
+            indexed_singleton_parent_of_impls.push(quote! { #(#parent_impls)* });
         }
 
         // Manage method.
-        let method_ident = method_ident_for("manage", &singleton_family.name);
-        let manage_ty = if singleton_family.parents.is_none() {
-            root_manage_ty(ObjectType::SingletonFamily, false, type_ident)
+        let method_ident = method_ident_for("manage", &indexed_singleton.name);
+        let manage_ty = if indexed_singleton.parents.is_none() {
+            root_manage_ty(ObjectType::IndexedSingleton, false, type_ident)
         } else {
-            child_manage_ty(ObjectType::SingletonFamily, false, type_ident)
+            child_manage_ty(ObjectType::IndexedSingleton, false, type_ident)
         };
-        singleton_family_manage_methods.push(quote! {
+        indexed_singleton_manage_methods.push(quote! {
             fn #method_ident(&self) -> & #manage_ty;
         });
     }
@@ -142,14 +142,14 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         #(#unordered_parent_of_impls)*
         #(#batch_parent_of_impls)*
         #(#singleton_parent_of_impls)*
-        #(#singleton_family_parent_of_impls)*
+        #(#indexed_singleton_parent_of_impls)*
 
         pub trait #repo_name: ::std::marker::Send + ::std::marker::Sync {
             #(#ordered_manage_methods)*
             #(#unordered_manage_methods)*
             #(#batch_manage_methods)*
             #(#singleton_manage_methods)*
-            #(#singleton_family_manage_methods)*
+            #(#indexed_singleton_manage_methods)*
         }
     }
 }
@@ -166,7 +166,7 @@ pub(crate) enum ObjectType {
     Unordered,
     Batch,
     Singleton,
-    SingletonFamily,
+    IndexedSingleton,
 }
 
 pub(crate) fn root_manage_ty(
@@ -193,8 +193,8 @@ pub(crate) fn root_manage_ty(
         (ObjectType::Singleton, _) => {
             quote! { ::fractic_aws_dynamo::ext::crud::ManageRootSingleton<#ty_ident> }
         }
-        (ObjectType::SingletonFamily, _) => {
-            quote! { ::fractic_aws_dynamo::ext::crud::ManageRootSingletonFamily<#ty_ident> }
+        (ObjectType::IndexedSingleton, _) => {
+            quote! { ::fractic_aws_dynamo::ext::crud::ManageRootIndexedSingleton<#ty_ident> }
         }
     }
 }
@@ -223,8 +223,8 @@ pub(crate) fn child_manage_ty(
         (ObjectType::Singleton, _) => {
             quote! { ::fractic_aws_dynamo::ext::crud::ManageChildSingleton<#ty_ident> }
         }
-        (ObjectType::SingletonFamily, _) => {
-            quote! { ::fractic_aws_dynamo::ext::crud::ManageChildSingletonFamily<#ty_ident> }
+        (ObjectType::IndexedSingleton, _) => {
+            quote! { ::fractic_aws_dynamo::ext::crud::ManageChildIndexedSingleton<#ty_ident> }
         }
     }
 }

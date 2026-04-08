@@ -106,23 +106,23 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         );
     }
 
-    // Fields and initializers for singleton family roots/children.
-    let mut singleton_family_fields = Vec::new();
-    let mut singleton_family_inits = Vec::new();
-    let mut singleton_family_trait_impls = Vec::new();
-    for singleton_family in &model.singleton_family_objects {
-        let method_ident = method_ident_for("manage", &singleton_family.name);
-        let ty_ident = &singleton_family.name;
-        let db_ident = db_ident_for(singleton_family.is_archive);
-        let manage_ty = if singleton_family.parents.is_none() {
-            root_manage_ty(ObjectType::SingletonFamily, false, ty_ident)
+    // Fields and initializers for indexed singleton roots/children.
+    let mut indexed_singleton_fields = Vec::new();
+    let mut indexed_singleton_inits = Vec::new();
+    let mut indexed_singleton_trait_impls = Vec::new();
+    for indexed_singleton in &model.indexed_singleton_objects {
+        let method_ident = method_ident_for("manage", &indexed_singleton.name);
+        let ty_ident = &indexed_singleton.name;
+        let db_ident = db_ident_for(indexed_singleton.is_archive);
+        let manage_ty = if indexed_singleton.parents.is_none() {
+            root_manage_ty(ObjectType::IndexedSingleton, false, ty_ident)
         } else {
-            child_manage_ty(ObjectType::SingletonFamily, false, ty_ident)
+            child_manage_ty(ObjectType::IndexedSingleton, false, ty_ident)
         };
         gen_field_init_impl(
-            &mut singleton_family_fields,
-            &mut singleton_family_inits,
-            &mut singleton_family_trait_impls,
+            &mut indexed_singleton_fields,
+            &mut indexed_singleton_inits,
+            &mut indexed_singleton_trait_impls,
             &method_ident,
             db_ident,
             manage_ty,
@@ -135,7 +135,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             #(#unordered_fields,)*
             #(#batch_fields,)*
             #(#singleton_fields,)*
-            #(#singleton_family_fields,)*
+            #(#indexed_singleton_fields,)*
         }
 
         impl #impl_struct_ident {
@@ -148,7 +148,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     #(#unordered_inits,)*
                     #(#batch_inits,)*
                     #(#singleton_inits,)*
-                    #(#singleton_family_inits,)*
+                    #(#indexed_singleton_inits,)*
                 })
             }
         }
@@ -158,7 +158,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             #(#unordered_trait_impls)*
             #(#batch_trait_impls)*
             #(#singleton_trait_impls)*
-            #(#singleton_family_trait_impls)*
+            #(#indexed_singleton_trait_impls)*
         }
     };
     let out_case1_clone = out_case1_noarchive.clone();
@@ -169,7 +169,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             #(#unordered_fields,)*
             #(#batch_fields,)*
             #(#singleton_fields,)*
-            #(#singleton_family_fields,)*
+            #(#indexed_singleton_fields,)*
         }
 
         impl #impl_struct_ident {
@@ -185,7 +185,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                     #(#unordered_inits,)*
                     #(#batch_inits,)*
                     #(#singleton_inits,)*
-                    #(#singleton_family_inits,)*
+                    #(#indexed_singleton_inits,)*
                 })
             }
         }
@@ -195,7 +195,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             #(#unordered_trait_impls)*
             #(#batch_trait_impls)*
             #(#singleton_trait_impls)*
-            #(#singleton_family_trait_impls)*
+            #(#indexed_singleton_trait_impls)*
         }
     };
     let out_case2_clone = out_case2_witharchive.clone();

@@ -52,12 +52,12 @@ pub enum ObjectKind {
     Unordered,
     Batch,
     Singleton,
-    SingletonFamily,
+    IndexedSingleton,
 }
 
 impl ObjectKind {
     fn expected_list() -> &'static str {
-        "`root`, `ordered`, `unordered`, `batch`, `singleton`, or `singleton_family`"
+        "`root`, `ordered`, `unordered`, `batch`, `singleton`, or `indexed_singleton`"
     }
 
     fn from_str(s: &str) -> Option<Self> {
@@ -67,7 +67,7 @@ impl ObjectKind {
             "unordered" => Some(Self::Unordered),
             "batch" => Some(Self::Batch),
             "singleton" => Some(Self::Singleton),
-            "singleton_family" => Some(Self::SingletonFamily),
+            "indexed_singleton" => Some(Self::IndexedSingleton),
             _ => None,
         }
     }
@@ -117,7 +117,7 @@ impl Parse for ObjectDef {
         let mut unordered_children: Option<Vec<Ident>> = None;
         let mut batch_children: Option<Vec<Ident>> = None;
         let mut singleton_children: Option<Vec<Ident>> = None;
-        let mut singleton_family_children: Option<Vec<Ident>> = None;
+        let mut indexed_singleton_children: Option<Vec<Ident>> = None;
 
         while !content.is_empty() {
             let key: Ident = content.parse()?;
@@ -165,14 +165,14 @@ impl Parse for ObjectDef {
                     }
                     singleton_children = Some(parse_ident_list(&content)?);
                 }
-                "singleton_family_children" => {
-                    if singleton_family_children.is_some() {
+                "indexed_singleton_children" => {
+                    if indexed_singleton_children.is_some() {
                         return Err(Error::new(
                             key.span(),
-                            "duplicate `singleton_family_children` property",
+                            "duplicate `indexed_singleton_children` property",
                         ));
                     }
-                    singleton_family_children = Some(parse_ident_list(&content)?);
+                    indexed_singleton_children = Some(parse_ident_list(&content)?);
                 }
                 _ => {
                     return Err(Error::new(
@@ -180,7 +180,7 @@ impl Parse for ObjectDef {
                         format!(
                             "unknown property `{}`; expected one of: `parent`, \
                              `ordered_children`, `unordered_children`, `batch_children`, \
-                             `singleton_children`, `singleton_family_children`",
+                             `singleton_children`, `indexed_singleton_children`",
                             key
                         ),
                     ));
@@ -203,7 +203,7 @@ impl Parse for ObjectDef {
                 unordered_children: unordered_children.unwrap_or_default(),
                 batch_children: batch_children.unwrap_or_default(),
                 singleton_children: singleton_children.unwrap_or_default(),
-                singleton_family_children: singleton_family_children.unwrap_or_default(),
+                indexed_singleton_children: indexed_singleton_children.unwrap_or_default(),
             },
         })
     }
@@ -227,7 +227,7 @@ pub struct ObjectPropsRaw {
     pub unordered_children: Vec<Ident>,
     pub batch_children: Vec<Ident>,
     pub singleton_children: Vec<Ident>,
-    pub singleton_family_children: Vec<Ident>,
+    pub indexed_singleton_children: Vec<Ident>,
 }
 
 fn parse_ident_list(input: ParseStream<'_>) -> Result<Vec<Ident>> {
@@ -288,4 +288,5 @@ mod tests {
                 .contains("expected repository name before object definitions")
         );
     }
+
 }

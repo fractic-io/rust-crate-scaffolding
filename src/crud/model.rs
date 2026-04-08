@@ -10,7 +10,7 @@ pub struct ConfigModel {
     pub unordered_objects: Vec<StandardDef>,
     pub batch_objects: Vec<BatchDef>,
     pub singleton_objects: Vec<SingletonDef>,
-    pub singleton_family_objects: Vec<SingletonFamilyDef>,
+    pub indexed_singleton_objects: Vec<IndexedSingletonDef>,
 }
 
 #[derive(Debug)]
@@ -22,7 +22,7 @@ pub struct StandardDef {
     pub unordered_children: Vec<Ident>,
     pub batch_children: Vec<Ident>,
     pub singleton_children: Vec<Ident>,
-    pub singleton_family_children: Vec<Ident>,
+    pub indexed_singleton_children: Vec<Ident>,
 }
 
 #[derive(Debug)]
@@ -40,7 +40,7 @@ pub struct SingletonDef {
 }
 
 #[derive(Debug)]
-pub struct SingletonFamilyDef {
+pub struct IndexedSingletonDef {
     pub is_archive: bool,
     pub name: Ident,
     pub parents: Option<Vec<Ident>>,
@@ -54,7 +54,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
         let mut unordered_objects = Vec::new();
         let mut batch_objects = Vec::new();
         let mut singleton_objects = Vec::new();
-        let mut singleton_family_objects = Vec::new();
+        let mut indexed_singleton_objects = Vec::new();
 
         for obj in value.objects {
             let ast::ObjectDef {
@@ -69,7 +69,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                 unordered_children,
                 batch_children,
                 singleton_children,
-                singleton_family_children,
+                indexed_singleton_children,
             } = props;
 
             match kind {
@@ -88,7 +88,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         unordered_children,
                         batch_children,
                         singleton_children,
-                        singleton_family_children,
+                        indexed_singleton_children,
                     });
                 }
                 ast::ObjectKind::Ordered => {
@@ -101,7 +101,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         unordered_children,
                         batch_children,
                         singleton_children,
-                        singleton_family_children,
+                        indexed_singleton_children,
                     });
                 }
                 ast::ObjectKind::Unordered => {
@@ -114,7 +114,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         unordered_children,
                         batch_children,
                         singleton_children,
-                        singleton_family_children,
+                        indexed_singleton_children,
                     });
                 }
                 ast::ObjectKind::Batch => {
@@ -123,13 +123,13 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         || !unordered_children.is_empty()
                         || !batch_children.is_empty()
                         || !singleton_children.is_empty()
-                        || !singleton_family_children.is_empty()
+                        || !indexed_singleton_children.is_empty()
                     {
                         return Err(Error::new(
                             name.span(),
                             "`batch` objects cannot have `ordered_children`, \
                              `unordered_children`, `batch_children`, `singleton_children`, or \
-                             `singleton_family_children`",
+                             `indexed_singleton_children`",
                         ));
                     }
                     batch_objects.push(BatchDef {
@@ -143,7 +143,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         || !unordered_children.is_empty()
                         || !batch_children.is_empty()
                         || !singleton_children.is_empty()
-                        || !singleton_family_children.is_empty()
+                        || !indexed_singleton_children.is_empty()
                     {
                         return Err(Error::new(
                             name.span(),
@@ -167,16 +167,16 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         parents: parent,
                     });
                 }
-                ast::ObjectKind::SingletonFamily => {
+                ast::ObjectKind::IndexedSingleton => {
                     if !ordered_children.is_empty()
                         || !unordered_children.is_empty()
                         || !batch_children.is_empty()
                         || !singleton_children.is_empty()
-                        || !singleton_family_children.is_empty()
+                        || !indexed_singleton_children.is_empty()
                     {
                         return Err(Error::new(
                             name.span(),
-                            "`singleton_family` objects cannot have child properties",
+                            "`indexed_singleton` objects cannot have child properties",
                         ));
                     }
 
@@ -184,13 +184,13 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         if parents.is_empty() {
                             return Err(Error::new(
                                 name.span(),
-                                "`singleton_family` objects require at least one `parent` when \
+                                "`indexed_singleton` objects require at least one `parent` when \
                                  `parent` is specified",
                             ));
                         }
                     }
 
-                    singleton_family_objects.push(SingletonFamilyDef {
+                    indexed_singleton_objects.push(IndexedSingletonDef {
                         is_archive,
                         name,
                         parents: parent,
@@ -205,7 +205,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
             unordered_objects,
             batch_objects,
             singleton_objects,
-            singleton_family_objects,
+            indexed_singleton_objects,
         })
     }
 }
@@ -216,7 +216,7 @@ impl StandardDef {
             || !self.unordered_children.is_empty()
             || !self.batch_children.is_empty()
             || !self.singleton_children.is_empty()
-            || !self.singleton_family_children.is_empty()
+            || !self.indexed_singleton_children.is_empty()
     }
 }
 
@@ -258,7 +258,7 @@ impl HasParents for SingletonDef {
         self.parents.as_deref()
     }
 }
-impl HasParents for SingletonFamilyDef {
+impl HasParents for IndexedSingletonDef {
     fn parents(&self) -> Option<&[Ident]> {
         self.parents.as_deref()
     }
