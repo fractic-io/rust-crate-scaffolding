@@ -8,10 +8,16 @@ use syn::Ident;
 
 use crate::{
     crud::model::{
-        BatchDef, ConfigModel, HasParents, SingletonDef, IndexedSingletonDef, StandardDef,
+        BatchDef, ConfigModel, HasParents, IndexedSingletonDef, SingletonDef, StandardDef,
     },
     helpers::to_snake_case,
 };
+
+fn dynamo_data_type(ident: &Ident) -> TokenStream {
+    quote! {
+        <#ident as ::fractic_aws_dynamo::schema::DynamoObject>::Data
+    }
+}
 
 pub fn generate(model: &ConfigModel) -> TokenStream {
     let repo_name = &model.repository_name;
@@ -135,7 +141,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
 
 fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
     let ty_ident = &root.name;
-    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
+    let ty_data_ident = dynamo_data_type(ty_ident);
     let manager_ident = method_ident_for("manage", &root.name);
 
     let (basic_methods, basic_impls) = (
@@ -242,7 +248,7 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
     let (ordered_child_methods, ordered_child_impls) =
         root.ordered_children.iter().map(|child_name| {
             let child_ident = child_name;
-            let child_data_ident = Ident::new(&format!("{}Data", child_ident), child_ident.span());
+            let child_data_ident = dynamo_data_type(child_ident);
             let child_manager_ident = method_ident_for("manage", child_ident);
             let base_pascal = stripped_pascal(ty_ident, child_ident);
             let child_singular_snake = to_snake_case(&base_pascal);
@@ -275,7 +281,7 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
     let (unordered_child_methods, unordered_child_impls) =
         root.unordered_children.iter().map(|child_name| {
             let child_ident = child_name;
-            let child_data_ident = Ident::new(&format!("{}Data", child_ident), child_ident.span());
+            let child_data_ident = dynamo_data_type(child_ident);
             let child_manager_ident = method_ident_for("manage", child_ident);
             let base_pascal = stripped_pascal(ty_ident, child_ident);
             let child_singular_snake = to_snake_case(&base_pascal);
@@ -307,7 +313,7 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
 
     let (batch_methods, batch_impls) = root.batch_children.iter().map(|batch_name| {
         let batch_ident = batch_name;
-        let batch_data_ident = Ident::new(&format!("{}Data", batch_ident), batch_ident.span());
+        let batch_data_ident = dynamo_data_type(batch_ident);
         let batch_manager_ident = method_ident_for("manage", batch_ident);
         let base_pascal = stripped_pascal(ty_ident, batch_ident);
         let plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
@@ -340,7 +346,7 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
         .iter()
         .map(|child_name| {
             let child_ident = child_name;
-            let child_data_ident = Ident::new(&format!("{}Data", child_ident), child_ident.span());
+            let child_data_ident = dynamo_data_type(child_ident);
             let child_manager_ident = method_ident_for("manage", child_ident);
             let base_pascal = stripped_pascal(ty_ident, child_ident);
             let singular_snake = to_snake_case(&base_pascal);
@@ -373,7 +379,7 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
         .iter()
         .map(|child_name| {
             let child_ident = child_name;
-            let child_data_ident = Ident::new(&format!("{}Data", child_ident), child_ident.span());
+            let child_data_ident = dynamo_data_type(child_ident);
             let child_manager_ident = method_ident_for("manage", child_ident);
             let base_pascal = stripped_pascal(ty_ident, child_ident);
             let singular_snake = to_snake_case(&base_pascal);
@@ -454,7 +460,7 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
 
 fn gen_root_batch_item(batch: &BatchDef) -> TokenStream {
     let ty_ident = &batch.name;
-    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
+    let ty_data_ident = dynamo_data_type(ty_ident);
     let manager_ident = method_ident_for("manage", ty_ident);
     let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
 
@@ -487,8 +493,8 @@ fn gen_root_batch_item(batch: &BatchDef) -> TokenStream {
 
 fn gen_child_batch_item(batch: &BatchDef, parent_ident: &Ident) -> TokenStream {
     let ty_ident = &batch.name;
-    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
-    let parent_data_ident = Ident::new(&format!("{}Data", parent_ident), parent_ident.span());
+    let ty_data_ident = dynamo_data_type(ty_ident);
+    let parent_data_ident = dynamo_data_type(parent_ident);
     let manager_ident = method_ident_for("manage", ty_ident);
     let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
 
@@ -536,7 +542,7 @@ fn gen_child_batch_item(batch: &BatchDef, parent_ident: &Ident) -> TokenStream {
 
 fn gen_root_singleton_item(singleton: &SingletonDef) -> TokenStream {
     let ty_ident = &singleton.name;
-    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
+    let ty_data_ident = dynamo_data_type(ty_ident);
     let manager_ident = method_ident_for("manage", ty_ident);
     let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
 
@@ -569,7 +575,7 @@ fn gen_root_singleton_item(singleton: &SingletonDef) -> TokenStream {
 
 fn gen_root_indexed_singleton_item(indexed_singleton: &IndexedSingletonDef) -> TokenStream {
     let ty_ident = &indexed_singleton.name;
-    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
+    let ty_data_ident = dynamo_data_type(ty_ident);
     let manager_ident = method_ident_for("manage", ty_ident);
     let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
 
@@ -622,8 +628,8 @@ fn gen_child_standard_item(
     is_ordered: bool,
 ) -> TokenStream {
     let ty_ident = &child.name;
-    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
-    let parent_data_ident = Ident::new(&format!("{}Data", parent_ident), parent_ident.span());
+    let ty_data_ident = dynamo_data_type(ty_ident);
+    let parent_data_ident = dynamo_data_type(parent_ident);
     let manager_ident = method_ident_for("manage", &child.name);
 
     let (basic_methods, basic_impls) = (
@@ -747,7 +753,7 @@ fn gen_child_standard_item(
         .iter()
         .map(|grandchild| {
             let gc_ident = grandchild;
-            let gc_data_ident = Ident::new(&format!("{}Data", gc_ident), gc_ident.span());
+            let gc_data_ident = dynamo_data_type(gc_ident);
             let gc_manager_ident = method_ident_for("manage", gc_ident);
             let base_pascal = stripped_pascal(ty_ident, gc_ident);
             let singular_snake = to_snake_case(&base_pascal);
@@ -781,7 +787,7 @@ fn gen_child_standard_item(
         .iter()
         .map(|grandchild| {
             let gc_ident = grandchild;
-            let gc_data_ident = Ident::new(&format!("{}Data", gc_ident), gc_ident.span());
+            let gc_data_ident = dynamo_data_type(gc_ident);
             let gc_manager_ident = method_ident_for("manage", gc_ident);
             let base_pascal = stripped_pascal(ty_ident, gc_ident);
             let singular_snake = to_snake_case(&base_pascal);
@@ -815,7 +821,7 @@ fn gen_child_standard_item(
         .iter()
         .map(|batch| {
             let b_ident = batch;
-            let b_data_ident = Ident::new(&format!("{}Data", b_ident), b_ident.span());
+            let b_data_ident = dynamo_data_type(b_ident);
             let b_manager_ident = method_ident_for("manage", b_ident);
             let base_pascal = stripped_pascal(ty_ident, b_ident);
             let plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
@@ -848,7 +854,7 @@ fn gen_child_standard_item(
         .iter()
         .map(|singleton_child| {
             let s_ident = singleton_child;
-            let s_data_ident = Ident::new(&format!("{}Data", s_ident), s_ident.span());
+            let s_data_ident = dynamo_data_type(s_ident);
             let s_manager_ident = method_ident_for("manage", s_ident);
             let base_pascal = stripped_pascal(ty_ident, s_ident);
             let singular_snake = to_snake_case(&base_pascal);
@@ -881,7 +887,7 @@ fn gen_child_standard_item(
         .iter()
         .map(|indexed_singleton_child| {
             let s_ident = indexed_singleton_child;
-            let s_data_ident = Ident::new(&format!("{}Data", s_ident), s_ident.span());
+            let s_data_ident = dynamo_data_type(s_ident);
             let s_manager_ident = method_ident_for("manage", s_ident);
             let base_pascal = stripped_pascal(ty_ident, s_ident);
             let singular_snake = to_snake_case(&base_pascal);
@@ -960,8 +966,8 @@ fn gen_child_standard_item(
 
 fn gen_child_singleton_item(singleton: &SingletonDef, parent_ident: &Ident) -> TokenStream {
     let ty_ident = &singleton.name;
-    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
-    let parent_data_ident = Ident::new(&format!("{}Data", parent_ident), parent_ident.span());
+    let ty_data_ident = dynamo_data_type(ty_ident);
+    let parent_data_ident = dynamo_data_type(parent_ident);
     let manager_ident = method_ident_for("manage", ty_ident);
     let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
 
@@ -1012,8 +1018,8 @@ fn gen_child_indexed_singleton_item(
     parent_ident: &Ident,
 ) -> TokenStream {
     let ty_ident = &indexed_singleton.name;
-    let ty_data_ident = Ident::new(&format!("{}Data", ty_ident), ty_ident.span());
-    let parent_data_ident = Ident::new(&format!("{}Data", parent_ident), parent_ident.span());
+    let ty_data_ident = dynamo_data_type(ty_ident);
+    let parent_data_ident = dynamo_data_type(parent_ident);
     let manager_ident = method_ident_for("manage", ty_ident);
     let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
 
