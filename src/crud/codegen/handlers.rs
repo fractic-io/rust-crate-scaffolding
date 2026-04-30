@@ -556,6 +556,7 @@ fn gen_root_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> To
                 );
             }
             let __item = __repo.#manager_ident().get().await?;
+            let __item = __item.ok_or_else(|| ::fractic_aws_dynamo::errors::DynamoNotFound::new())?;
             ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
         },
     };
@@ -697,6 +698,7 @@ fn gen_root_indexed_singleton_handler(
                 );
             }
             let __item = __repo.#manager_ident().get(&key).await?;
+            let __item = __item.ok_or_else(|| ::fractic_aws_dynamo::errors::DynamoNotFound::new())?;
             ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
         },
     };
@@ -725,6 +727,10 @@ fn gen_root_indexed_singleton_handler(
             }
             let __futs = keys.iter().map(|key| __repo.#manager_ident().get(key));
             let __items = ::futures_util::future::try_join_all(__futs).await?;
+            let __items = __items
+                .into_iter()
+                .collect::<::std::option::Option<::std::vec::Vec<_>>>()
+                .ok_or_else(|| ::fractic_aws_dynamo::errors::DynamoNotFound::new())?;
             ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
         },
     };
@@ -1327,6 +1333,7 @@ fn gen_child_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> T
             };
             let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
             let __item = __repo.#manager_ident().get(&__tmp_parent).await?;
+            let __item = __item.ok_or_else(|| ::fractic_aws_dynamo::errors::DynamoNotFound::new())?;
             ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
         },
     };
@@ -1479,6 +1486,7 @@ fn gen_child_indexed_singleton_handler(
             };
             let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
             let __item = __repo.#manager_ident().get(&__tmp_parent, &key).await?;
+            let __item = __item.ok_or_else(|| ::fractic_aws_dynamo::errors::DynamoNotFound::new())?;
             ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
         },
     };
@@ -1508,6 +1516,10 @@ fn gen_child_indexed_singleton_handler(
             let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
             let __futs = keys.iter().map(|key| __repo.#manager_ident().get(&__tmp_parent, key));
             let __items = ::futures_util::future::try_join_all(__futs).await?;
+            let __items = __items
+                .into_iter()
+                .collect::<::std::option::Option<::std::vec::Vec<_>>>()
+                .ok_or_else(|| ::fractic_aws_dynamo::errors::DynamoNotFound::new())?;
             ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
         },
     };

@@ -288,5 +288,4 @@ mod tests {
                 .contains("expected repository name before object definitions")
         );
     }
-
 }
