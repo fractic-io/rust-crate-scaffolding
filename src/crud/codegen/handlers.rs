@@ -164,11 +164,6 @@ fn gen_root_standard_handler(
     let manager_ident = method_ident_for("manage", ty_ident);
     let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
     let has_children = root.has_children();
-    let recursive_delete_manager_method = if root.is_archive {
-        quote! { delete_recursive_archived }
-    } else {
-        quote! { delete_recursive }
-    };
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -315,7 +310,7 @@ fn gen_root_standard_handler(
                 if non_recursive {
                     __repo.#manager_ident().delete_non_recursive(__item).await?;
                 } else {
-                    __repo.#manager_ident().#recursive_delete_manager_method(__item).await?;
+                    __repo.#manager_ident().delete_recursive(__item).await?;
                 }
                 ::std::result::Result::Ok(__CrudOperationResult::Unit)
             },
@@ -919,11 +914,6 @@ fn gen_child_standard_handler(
     let manager_ident = method_ident_for("manage", ty_ident);
     let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
     let has_children = child.has_children();
-    let recursive_delete_manager_method = if child.is_archive {
-        quote! { delete_recursive_archived }
-    } else {
-        quote! { delete_recursive }
-    };
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -1075,7 +1065,7 @@ fn gen_child_standard_handler(
                 if non_recursive {
                     __repo.#manager_ident().delete_non_recursive(__item).await?;
                 } else {
-                    __repo.#manager_ident().#recursive_delete_manager_method(__item).await?;
+                    __repo.#manager_ident().delete_recursive(__item).await?;
                 }
                 ::std::result::Result::Ok(__CrudOperationResult::Unit)
             },
