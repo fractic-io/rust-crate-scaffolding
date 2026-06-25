@@ -143,6 +143,11 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
     let ty_ident = &root.name;
     let ty_data_ident = dynamo_data_type(ty_ident);
     let manager_ident = method_ident_for("manage", &root.name);
+    let recursive_delete_manager_method = if root.is_archive {
+        quote! { delete_recursive_archived }
+    } else {
+        quote! { delete_recursive }
+    };
 
     let (basic_methods, basic_impls) = (
         quote! {
@@ -208,7 +213,7 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
             },
             quote! {
                 async fn delete_recursive(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
-                    ctx.$ctx_repo_accessor().await?.#manager_ident().delete_recursive(self).await
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().#recursive_delete_manager_method(self).await
                 }
                 #[allow(non_snake_case)]
                 async fn delete_non_recursive_DANGEROUS(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
@@ -631,6 +636,11 @@ fn gen_child_standard_item(
     let ty_data_ident = dynamo_data_type(ty_ident);
     let parent_data_ident = dynamo_data_type(parent_ident);
     let manager_ident = method_ident_for("manage", &child.name);
+    let recursive_delete_manager_method = if child.is_archive {
+        quote! { delete_recursive_archived }
+    } else {
+        quote! { delete_recursive }
+    };
 
     let (basic_methods, basic_impls) = (
         quote! {
@@ -719,7 +729,7 @@ fn gen_child_standard_item(
             },
             quote! {
                 async fn delete_recursive(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
-                    ctx.$ctx_repo_accessor().await?.#manager_ident().delete_recursive(self).await
+                    ctx.$ctx_repo_accessor().await?.#manager_ident().#recursive_delete_manager_method(self).await
                 }
                 #[allow(non_snake_case)]
                 async fn delete_non_recursive_DANGEROUS(self, ctx: __ctx!()) -> ::std::result::Result<#ty_data_ident, ::fractic_server_error::ServerError> {
