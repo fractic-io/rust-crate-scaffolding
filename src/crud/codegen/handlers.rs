@@ -3,7 +3,7 @@ use quote::quote;
 use syn::Ident;
 
 use crate::{
-    crud::model::{BatchDef, ConfigModel, SingletonDef, IndexedSingletonDef, StandardDef},
+    crud::model::{BatchDef, ConfigModel, IndexedSingletonDef, SingletonDef, StandardDef},
     helpers::to_snake_case,
 };
 

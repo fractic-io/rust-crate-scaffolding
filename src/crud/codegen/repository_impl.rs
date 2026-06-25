@@ -34,6 +34,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             &method_ident,
             db_ident,
             manage_ty,
+            ordered.is_archive,
         );
     }
 
@@ -57,6 +58,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             &method_ident,
             db_ident,
             manage_ty,
+            unordered.is_archive,
         );
     }
 
@@ -80,6 +82,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             &method_ident,
             db_ident,
             manage_ty,
+            batch.is_archive,
         );
     }
 
@@ -103,6 +106,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             &method_ident,
             db_ident,
             manage_ty,
+            singleton.is_archive,
         );
     }
 
@@ -126,6 +130,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             &method_ident,
             db_ident,
             manage_ty,
+            indexed_singleton.is_archive,
         );
     }
 
@@ -233,6 +238,7 @@ fn gen_field_init_impl(
     method_ident: &Ident,
     db_ident: TokenStream,
     manage_ty: TokenStream,
+    archived: bool,
 ) {
     let init_ty = manage_ty.clone();
     let trait_ty = manage_ty.clone();
@@ -243,6 +249,7 @@ fn gen_field_init_impl(
         #method_ident: <#init_ty>::new(
             #db_ident.clone(),
             crud_algorithms.clone(),
+            #archived,
         )
     });
     trait_impls.push(quote! {
