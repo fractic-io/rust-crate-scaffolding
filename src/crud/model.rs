@@ -61,8 +61,8 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
     type Error = Error;
 
     fn try_from(value: ast::ConfigAst) -> Result<Self> {
-        let mut ordered_objects = Vec::new();
         let mut phantom_objects = Vec::new();
+        let mut ordered_objects = Vec::new();
         let mut unordered_objects = Vec::new();
         let mut batch_objects = Vec::new();
         let mut singleton_objects = Vec::new();
