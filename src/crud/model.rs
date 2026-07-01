@@ -17,6 +17,9 @@ pub struct ConfigModel {
 #[derive(Debug)]
 pub struct PhantomDef {
     pub name: Ident,
+    pub ordered_children: Vec<Ident>,
+    pub unordered_children: Vec<Ident>,
+    pub batch_children: Vec<Ident>,
     pub singleton_children: Vec<Ident>,
     pub indexed_singleton_children: Vec<Ident>,
 }
@@ -95,18 +98,11 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                             "`phantom` objects cannot have a `parent` property",
                         ));
                     }
-                    if !ordered_children.is_empty()
-                        || !unordered_children.is_empty()
-                        || !batch_children.is_empty()
-                    {
-                        return Err(Error::new(
-                            name.span(),
-                            "`phantom` objects currently support only `singleton_children` and \
-                             `indexed_singleton_children`",
-                        ));
-                    }
                     phantom_objects.push(PhantomDef {
                         name,
+                        ordered_children,
+                        unordered_children,
+                        batch_children,
                         singleton_children,
                         indexed_singleton_children,
                     });
@@ -337,9 +333,25 @@ mod tests {
             r#"
             MyRepo;
             phantom Lookup {
+                ordered_children: MatchHit
+                unordered_children: MatchLog
+                batch_children: MatchCache
                 singleton_children: ImageMatch
+                indexed_singleton_children: ImageMatchIndex
+            }
+            ordered MatchHit {
+                parent: Lookup
+            }
+            unordered MatchLog {
+                parent: Lookup
+            }
+            batch MatchCache {
+                parent: Lookup
             }
             singleton ImageMatch {
+                parent: Lookup
+            }
+            indexed_singleton ImageMatchIndex {
                 parent: Lookup
             }
             "#,
@@ -350,8 +362,18 @@ mod tests {
 
         assert_eq!(model.phantom_objects.len(), 1);
         assert_eq!(model.phantom_objects[0].name, "Lookup");
+        assert_eq!(model.phantom_objects[0].ordered_children[0], "MatchHit");
+        assert_eq!(model.phantom_objects[0].unordered_children[0], "MatchLog");
+        assert_eq!(model.phantom_objects[0].batch_children[0], "MatchCache");
         assert_eq!(model.phantom_objects[0].singleton_children[0], "ImageMatch");
-        assert!(model.ordered_objects.is_empty());
+        assert_eq!(
+            model.phantom_objects[0].indexed_singleton_children[0],
+            "ImageMatchIndex"
+        );
+        assert_eq!(model.ordered_objects.len(), 1);
+        assert_eq!(model.unordered_objects.len(), 1);
+        assert_eq!(model.batch_objects.len(), 1);
         assert_eq!(model.singleton_objects.len(), 1);
+        assert_eq!(model.indexed_singleton_objects.len(), 1);
     }
 }
