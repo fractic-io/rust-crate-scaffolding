@@ -47,6 +47,7 @@ impl Parse for ConfigAst {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectKind {
+    Phantom,
     Root,
     Ordered,
     Unordered,
@@ -57,11 +58,13 @@ pub enum ObjectKind {
 
 impl ObjectKind {
     fn expected_list() -> &'static str {
-        "`root`, `ordered`, `unordered`, `batch`, `singleton`, or `indexed_singleton`"
+        "`phantom`, `root`, `ordered`, `unordered`, `batch`, `singleton`, or \
+         `indexed_singleton`"
     }
 
     fn from_str(s: &str) -> Option<Self> {
         match s {
+            "phantom" => Some(Self::Phantom),
             "root" => Some(Self::Root),
             "ordered" => Some(Self::Ordered),
             "unordered" => Some(Self::Unordered),

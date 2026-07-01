@@ -8,7 +8,8 @@ use syn::Ident;
 
 use crate::{
     crud::model::{
-        BatchDef, ConfigModel, HasParents, IndexedSingletonDef, SingletonDef, StandardDef,
+        BatchDef, ConfigModel, HasParents, IndexedSingletonDef, PhantomDef, SingletonDef,
+        StandardDef,
     },
     helpers::to_snake_case,
 };
@@ -28,10 +29,16 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     );
 
     let root_items: Vec<TokenStream> = model
-        .ordered_objects
+        .phantom_objects
         .iter()
-        .filter(|root| root.parents.is_none())
-        .map(|root| gen_root_standard_item(root, true))
+        .map(gen_phantom_item)
+        .chain(
+            model
+                .ordered_objects
+                .iter()
+                .filter(|root| root.parents.is_none())
+                .map(|root| gen_root_standard_item(root, true)),
+        )
         .chain(
             model
                 .unordered_objects
@@ -136,6 +143,238 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
 
         #[allow(unused_imports)]
         pub(crate) use #macro_name_ident;
+    }
+}
+
+fn gen_phantom_item(phantom: &PhantomDef) -> TokenStream {
+    let ty_ident = &phantom.name;
+
+    let (ordered_child_methods, ordered_child_impls) = phantom
+        .ordered_children
+        .iter()
+        .map(|child_name| {
+            let child_ident = child_name;
+            let child_data_ident = dynamo_data_type(child_ident);
+            let child_manager_ident = method_ident_for("manage", child_ident);
+            let base_pascal = stripped_pascal(ty_ident, child_ident);
+            let child_singular_snake = to_snake_case(&base_pascal);
+            let child_plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
+            let add_child_fn =
+                Ident::new(&format!("add_{}", child_singular_snake), child_ident.span());
+            let batch_add_children_fn = Ident::new(
+                &format!("batch_add_{}", child_plural_snake),
+                child_ident.span(),
+            );
+            let list_children_fn =
+                Ident::new(&format!("list_{}", child_plural_snake), child_ident.span());
+            (
+                quote! {
+                    async fn #add_child_fn(&self, ctx: __ctx!(), data: #child_data_ident, after: ::std::option::Option<& #child_ident>) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError>;
+                    async fn #batch_add_children_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#child_data_ident>, after: ::std::option::Option<& #child_ident>) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError>;
+                    async fn #list_children_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError>;
+                },
+                quote! {
+                    async fn #add_child_fn(&self, ctx: __ctx!(), data: #child_data_ident, after: ::std::option::Option<& #child_ident>) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().add(self, data, after).await
+                    }
+                    async fn #batch_add_children_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#child_data_ident>, after: ::std::option::Option<& #child_ident>) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().batch_add(self, data, after).await
+                    }
+                    async fn #list_children_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().query_all(self).await
+                    }
+                },
+            )
+        })
+        .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
+
+    let (unordered_child_methods, unordered_child_impls) = phantom
+        .unordered_children
+        .iter()
+        .map(|child_name| {
+            let child_ident = child_name;
+            let child_data_ident = dynamo_data_type(child_ident);
+            let child_manager_ident = method_ident_for("manage", child_ident);
+            let base_pascal = stripped_pascal(ty_ident, child_ident);
+            let child_singular_snake = to_snake_case(&base_pascal);
+            let child_plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
+            let add_child_fn =
+                Ident::new(&format!("add_{}", child_singular_snake), child_ident.span());
+            let batch_add_children_fn = Ident::new(
+                &format!("batch_add_{}", child_plural_snake),
+                child_ident.span(),
+            );
+            let list_children_fn =
+                Ident::new(&format!("list_{}", child_plural_snake), child_ident.span());
+            (
+                quote! {
+                    async fn #add_child_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError>;
+                    async fn #batch_add_children_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#child_data_ident>) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError>;
+                    async fn #list_children_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError>;
+                },
+                quote! {
+                    async fn #add_child_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().add(self, data).await
+                    }
+                    async fn #batch_add_children_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#child_data_ident>) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().batch_add(self, data).await
+                    }
+                    async fn #list_children_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().query_all(self).await
+                    }
+                },
+            )
+        })
+        .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
+
+    let (batch_methods, batch_impls) = phantom
+        .batch_children
+        .iter()
+        .map(|batch_name| {
+            let batch_ident = batch_name;
+            let batch_data_ident = dynamo_data_type(batch_ident);
+            let batch_manager_ident = method_ident_for("manage", batch_ident);
+            let base_pascal = stripped_pascal(ty_ident, batch_ident);
+            let plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
+            let list_fn = Ident::new(&format!("list_{}", plural_snake), batch_ident.span());
+            let del_all_fn = Ident::new(
+                &format!("batch_delete_all_{}", plural_snake),
+                batch_ident.span(),
+            );
+            let replace_all_fn = Ident::new(
+                &format!("batch_replace_all_{}", plural_snake),
+                batch_ident.span(),
+            );
+            (
+                quote! {
+                    async fn #list_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#batch_ident>, ::fractic_server_error::ServerError>;
+                    async fn #del_all_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                    async fn #replace_all_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#batch_data_ident>) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                },
+                quote! {
+                    async fn #list_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#batch_ident>, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#batch_manager_ident().query_all(self).await
+                    }
+                    async fn #del_all_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#batch_manager_ident().batch_delete_all(self).await
+                    }
+                    async fn #replace_all_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#batch_data_ident>) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#batch_manager_ident().batch_replace_all_ordered(self, data).await
+                    }
+                },
+            )
+        })
+        .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
+
+    let (singleton_child_methods, singleton_child_impls) = phantom
+        .singleton_children
+        .iter()
+        .map(|child_name| {
+            let child_ident = child_name;
+            let child_data_ident = dynamo_data_type(child_ident);
+            let child_manager_ident = method_ident_for("manage", child_ident);
+            let base_pascal = stripped_pascal(ty_ident, child_ident);
+            let singular_snake = to_snake_case(&base_pascal);
+            let get_fn = Ident::new(&format!("get_{}", singular_snake), child_ident.span());
+            let set_fn = Ident::new(&format!("set_{}", singular_snake), child_ident.span());
+            let delete_fn = Ident::new(&format!("delete_{}", singular_snake), child_ident.span());
+            (
+                quote! {
+                    async fn #get_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::option::Option<#child_ident>, ::fractic_server_error::ServerError>;
+                    async fn #set_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError>;
+                    async fn #delete_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                },
+                quote! {
+                    async fn #get_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::option::Option<#child_ident>, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().get(self).await
+                    }
+                    async fn #set_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().set(self, data).await
+                    }
+                    async fn #delete_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().delete(self).await
+                    }
+                },
+            )
+        })
+        .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
+
+    let (indexed_singleton_child_methods, indexed_singleton_child_impls) = phantom
+        .indexed_singleton_children
+        .iter()
+        .map(|child_name| {
+            let child_ident = child_name;
+            let child_data_ident = dynamo_data_type(child_ident);
+            let child_manager_ident = method_ident_for("manage", child_ident);
+            let base_pascal = stripped_pascal(ty_ident, child_ident);
+            let singular_snake = to_snake_case(&base_pascal);
+            let plural_snake = to_snake_case(&pluralize_pascal(&base_pascal));
+
+            let get_fn = Ident::new(&format!("get_{}", singular_snake), child_ident.span());
+            let set_fn = Ident::new(&format!("set_{}", singular_snake), child_ident.span());
+            let batch_set_fn =
+                Ident::new(&format!("batch_set_{}", plural_snake), child_ident.span());
+            let delete_fn = Ident::new(&format!("delete_{}", singular_snake), child_ident.span());
+            let batch_delete_fn =
+                Ident::new(&format!("batch_delete_{}", plural_snake), child_ident.span());
+            let list_fn = Ident::new(&format!("list_{}", plural_snake), child_ident.span());
+            let batch_delete_all_fn =
+                Ident::new(&format!("batch_delete_all_{}", plural_snake), child_ident.span());
+
+            (
+                quote! {
+                    async fn #get_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<::std::option::Option<#child_ident>, ::fractic_server_error::ServerError>;
+                    async fn #set_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError>;
+                    async fn #batch_set_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#child_data_ident>) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError>;
+                    async fn #delete_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                    async fn #batch_delete_fn(&self, ctx: __ctx!(), keys: ::std::vec::Vec<&str>) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                    async fn #list_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError>;
+                    async fn #batch_delete_all_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
+                },
+                quote! {
+                    async fn #get_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<::std::option::Option<#child_ident>, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().get(self, key).await
+                    }
+                    async fn #set_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().set(self, data).await
+                    }
+                    async fn #batch_set_fn(&self, ctx: __ctx!(), data: ::std::vec::Vec<#child_data_ident>) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().batch_set(self, data).await
+                    }
+                    async fn #delete_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().delete(self, key).await
+                    }
+                    async fn #batch_delete_fn(&self, ctx: __ctx!(), keys: ::std::vec::Vec<&str>) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().batch_delete(self, keys).await
+                    }
+                    async fn #list_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#child_ident>, ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().query_all(self).await
+                    }
+                    async fn #batch_delete_all_fn(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError> {
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().batch_delete_all(self).await
+                    }
+                },
+            )
+        })
+        .unzip::<TokenStream, TokenStream, Vec<_>, Vec<_>>();
+
+    let trait_ident = Ident::new(&format!("{}Crud", ty_ident), ty_ident.span());
+
+    quote! {
+        pub trait #trait_ident {
+            #(#ordered_child_methods)*
+            #(#unordered_child_methods)*
+            #(#batch_methods)*
+            #(#singleton_child_methods)*
+            #(#indexed_singleton_child_methods)*
+        }
+        impl #trait_ident for #ty_ident {
+            #(#ordered_child_impls)*
+            #(#unordered_child_impls)*
+            #(#batch_impls)*
+            #(#singleton_child_impls)*
+            #(#indexed_singleton_child_impls)*
+        }
     }
 }
 

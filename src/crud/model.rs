@@ -6,11 +6,22 @@ use crate::crud::ast;
 #[derive(Debug)]
 pub struct ConfigModel {
     pub repository_name: Ident,
+    pub phantom_objects: Vec<PhantomDef>,
     pub ordered_objects: Vec<StandardDef>,
     pub unordered_objects: Vec<StandardDef>,
     pub batch_objects: Vec<BatchDef>,
     pub singleton_objects: Vec<SingletonDef>,
     pub indexed_singleton_objects: Vec<IndexedSingletonDef>,
+}
+
+#[derive(Debug)]
+pub struct PhantomDef {
+    pub name: Ident,
+    pub ordered_children: Vec<Ident>,
+    pub unordered_children: Vec<Ident>,
+    pub batch_children: Vec<Ident>,
+    pub singleton_children: Vec<Ident>,
+    pub indexed_singleton_children: Vec<Ident>,
 }
 
 #[derive(Debug)]
@@ -50,6 +61,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
     type Error = Error;
 
     fn try_from(value: ast::ConfigAst) -> Result<Self> {
+        let mut phantom_objects = Vec::new();
         let mut ordered_objects = Vec::new();
         let mut unordered_objects = Vec::new();
         let mut batch_objects = Vec::new();
@@ -73,6 +85,28 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
             } = props;
 
             match kind {
+                ast::ObjectKind::Phantom => {
+                    if is_archive {
+                        return Err(Error::new(
+                            name.span(),
+                            "`phantom` objects cannot use the `archive` prefix",
+                        ));
+                    }
+                    if parent.is_some() {
+                        return Err(Error::new(
+                            name.span(),
+                            "`phantom` objects cannot have a `parent` property",
+                        ));
+                    }
+                    phantom_objects.push(PhantomDef {
+                        name,
+                        ordered_children,
+                        unordered_children,
+                        batch_children,
+                        singleton_children,
+                        indexed_singleton_children,
+                    });
+                }
                 ast::ObjectKind::Root => {
                     if parent.is_some() {
                         return Err(Error::new(
@@ -201,6 +235,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
 
         Ok(Self {
             repository_name: value.repository_name,
+            phantom_objects,
             ordered_objects,
             unordered_objects,
             batch_objects,
@@ -290,5 +325,55 @@ mod tests {
         assert!(model.ordered_objects[0].is_archive);
         assert!(!model.unordered_objects[0].is_archive);
         assert!(model.singleton_objects[0].is_archive);
+    }
+
+    #[test]
+    fn carries_phantom_objects_separately() {
+        let ast: ConfigAst = syn::parse_str(
+            r#"
+            MyRepo;
+            phantom Lookup {
+                ordered_children: MatchHit
+                unordered_children: MatchLog
+                batch_children: MatchCache
+                singleton_children: ImageMatch
+                indexed_singleton_children: ImageMatchIndex
+            }
+            ordered MatchHit {
+                parent: Lookup
+            }
+            unordered MatchLog {
+                parent: Lookup
+            }
+            batch MatchCache {
+                parent: Lookup
+            }
+            singleton ImageMatch {
+                parent: Lookup
+            }
+            indexed_singleton ImageMatchIndex {
+                parent: Lookup
+            }
+            "#,
+        )
+        .unwrap();
+
+        let model = ConfigModel::try_from(ast).unwrap();
+
+        assert_eq!(model.phantom_objects.len(), 1);
+        assert_eq!(model.phantom_objects[0].name, "Lookup");
+        assert_eq!(model.phantom_objects[0].ordered_children[0], "MatchHit");
+        assert_eq!(model.phantom_objects[0].unordered_children[0], "MatchLog");
+        assert_eq!(model.phantom_objects[0].batch_children[0], "MatchCache");
+        assert_eq!(model.phantom_objects[0].singleton_children[0], "ImageMatch");
+        assert_eq!(
+            model.phantom_objects[0].indexed_singleton_children[0],
+            "ImageMatchIndex"
+        );
+        assert_eq!(model.ordered_objects.len(), 1);
+        assert_eq!(model.unordered_objects.len(), 1);
+        assert_eq!(model.batch_objects.len(), 1);
+        assert_eq!(model.singleton_objects.len(), 1);
+        assert_eq!(model.indexed_singleton_objects.len(), 1);
     }
 }
