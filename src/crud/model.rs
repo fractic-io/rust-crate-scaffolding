@@ -6,11 +6,19 @@ use crate::crud::ast;
 #[derive(Debug)]
 pub struct ConfigModel {
     pub repository_name: Ident,
+    pub phantom_objects: Vec<PhantomDef>,
     pub ordered_objects: Vec<StandardDef>,
     pub unordered_objects: Vec<StandardDef>,
     pub batch_objects: Vec<BatchDef>,
     pub singleton_objects: Vec<SingletonDef>,
     pub indexed_singleton_objects: Vec<IndexedSingletonDef>,
+}
+
+#[derive(Debug)]
+pub struct PhantomDef {
+    pub name: Ident,
+    pub singleton_children: Vec<Ident>,
+    pub indexed_singleton_children: Vec<Ident>,
 }
 
 #[derive(Debug)]
@@ -51,6 +59,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
 
     fn try_from(value: ast::ConfigAst) -> Result<Self> {
         let mut ordered_objects = Vec::new();
+        let mut phantom_objects = Vec::new();
         let mut unordered_objects = Vec::new();
         let mut batch_objects = Vec::new();
         let mut singleton_objects = Vec::new();
@@ -73,6 +82,35 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
             } = props;
 
             match kind {
+                ast::ObjectKind::Phantom => {
+                    if is_archive {
+                        return Err(Error::new(
+                            name.span(),
+                            "`phantom` objects cannot use the `archive` prefix",
+                        ));
+                    }
+                    if parent.is_some() {
+                        return Err(Error::new(
+                            name.span(),
+                            "`phantom` objects cannot have a `parent` property",
+                        ));
+                    }
+                    if !ordered_children.is_empty()
+                        || !unordered_children.is_empty()
+                        || !batch_children.is_empty()
+                    {
+                        return Err(Error::new(
+                            name.span(),
+                            "`phantom` objects currently support only `singleton_children` and \
+                             `indexed_singleton_children`",
+                        ));
+                    }
+                    phantom_objects.push(PhantomDef {
+                        name,
+                        singleton_children,
+                        indexed_singleton_children,
+                    });
+                }
                 ast::ObjectKind::Root => {
                     if parent.is_some() {
                         return Err(Error::new(
@@ -201,6 +239,7 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
 
         Ok(Self {
             repository_name: value.repository_name,
+            phantom_objects,
             ordered_objects,
             unordered_objects,
             batch_objects,
@@ -290,5 +329,29 @@ mod tests {
         assert!(model.ordered_objects[0].is_archive);
         assert!(!model.unordered_objects[0].is_archive);
         assert!(model.singleton_objects[0].is_archive);
+    }
+
+    #[test]
+    fn carries_phantom_objects_separately() {
+        let ast: ConfigAst = syn::parse_str(
+            r#"
+            MyRepo;
+            phantom Lookup {
+                singleton_children: ImageMatch
+            }
+            singleton ImageMatch {
+                parent: Lookup
+            }
+            "#,
+        )
+        .unwrap();
+
+        let model = ConfigModel::try_from(ast).unwrap();
+
+        assert_eq!(model.phantom_objects.len(), 1);
+        assert_eq!(model.phantom_objects[0].name, "Lookup");
+        assert_eq!(model.phantom_objects[0].singleton_children[0], "ImageMatch");
+        assert!(model.ordered_objects.is_empty());
+        assert_eq!(model.singleton_objects.len(), 1);
     }
 }
