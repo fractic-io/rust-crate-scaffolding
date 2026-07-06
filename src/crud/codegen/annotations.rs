@@ -791,7 +791,7 @@ fn gen_root_singleton_item(singleton: &SingletonDef) -> TokenStream {
 
     let methods = quote! {
         async fn find(ctx: __ctx!()) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError>;
-        async fn get(ctx: __ctx!()) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+        async fn get(ctx: __ctx!()) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError>;
         async fn set(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
         async fn delete(ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
     };
@@ -799,8 +799,8 @@ fn gen_root_singleton_item(singleton: &SingletonDef) -> TokenStream {
         async fn find(ctx: __ctx!()) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError> {
             ctx.$ctx_repo_accessor().await?.#manager_ident().find().await
         }
-        async fn get(ctx: __ctx!()) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
-            ctx.$ctx_repo_accessor().await?.#manager_ident().get().await
+        async fn get(ctx: __ctx!()) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().find().await
         }
         async fn set(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
             ctx.$ctx_repo_accessor().await?.#manager_ident().set(data).await
@@ -828,7 +828,7 @@ fn gen_root_indexed_singleton_item(indexed_singleton: &IndexedSingletonDef) -> T
 
     let methods = quote! {
         async fn find(ctx: __ctx!(), key: &str) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError>;
-        async fn get(ctx: __ctx!(), key: &str) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
+        async fn get(ctx: __ctx!(), key: &str) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError>;
         async fn set(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
         async fn batch_set(ctx: __ctx!(), data: ::std::vec::Vec<#ty_data_ident>) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
         async fn delete(ctx: __ctx!(), key: &str) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
@@ -840,8 +840,8 @@ fn gen_root_indexed_singleton_item(indexed_singleton: &IndexedSingletonDef) -> T
         async fn find(ctx: __ctx!(), key: &str) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError> {
             ctx.$ctx_repo_accessor().await?.#manager_ident().find(key).await
         }
-        async fn get(ctx: __ctx!(), key: &str) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
-            ctx.$ctx_repo_accessor().await?.#manager_ident().get(key).await
+        async fn get(ctx: __ctx!(), key: &str) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError> {
+            ctx.$ctx_repo_accessor().await?.#manager_ident().find(key).await
         }
         async fn set(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
             ctx.$ctx_repo_accessor().await?.#manager_ident().set(data).await
