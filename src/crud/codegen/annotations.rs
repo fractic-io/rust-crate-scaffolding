@@ -286,7 +286,7 @@ fn gen_phantom_item(phantom: &PhantomDef) -> TokenStream {
                 },
                 quote! {
                     async fn #get_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::option::Option<#child_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().get(self).await
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().find(self).await
                     }
                     async fn #set_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError> {
                         ctx.$ctx_repo_accessor().await?.#child_manager_ident().set(self, data).await
@@ -333,7 +333,7 @@ fn gen_phantom_item(phantom: &PhantomDef) -> TokenStream {
                 },
                 quote! {
                     async fn #get_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<::std::option::Option<#child_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().get(self, key).await
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().find(self, key).await
                     }
                     async fn #set_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError> {
                         ctx.$ctx_repo_accessor().await?.#child_manager_ident().set(self, data).await
@@ -385,11 +385,15 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
 
     let (basic_methods, basic_impls) = (
         quote! {
+            async fn find(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError>;
             async fn get(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
             async fn update(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
             async fn list(ctx: __ctx!()) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
         },
         quote! {
+            async fn find(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError> {
+                ctx.$ctx_repo_accessor().await?.#manager_ident().find(id).await
+            }
             async fn get(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
                 ctx.$ctx_repo_accessor().await?.#manager_ident().get(id).await
             }
@@ -600,7 +604,7 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
                 },
                 quote! {
                     async fn #get_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::option::Option<#child_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().get(self).await
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().find(self).await
                     }
                     async fn #set_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError> {
                         ctx.$ctx_repo_accessor().await?.#child_manager_ident().set(self, data).await
@@ -646,7 +650,7 @@ fn gen_root_standard_item(root: &StandardDef, is_ordered: bool) -> TokenStream {
                 },
                 quote! {
                     async fn #get_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<::std::option::Option<#child_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().get(self, key).await
+                        ctx.$ctx_repo_accessor().await?.#child_manager_ident().find(self, key).await
                     }
                     async fn #set_fn(&self, ctx: __ctx!(), data: #child_data_ident) -> ::std::result::Result<#child_ident, ::fractic_server_error::ServerError> {
                         ctx.$ctx_repo_accessor().await?.#child_manager_ident().set(self, data).await
@@ -792,7 +796,7 @@ fn gen_root_singleton_item(singleton: &SingletonDef) -> TokenStream {
     };
     let impls = quote! {
         async fn get(ctx: __ctx!()) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError> {
-            ctx.$ctx_repo_accessor().await?.#manager_ident().get().await
+            ctx.$ctx_repo_accessor().await?.#manager_ident().find().await
         }
         async fn set(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
             ctx.$ctx_repo_accessor().await?.#manager_ident().set(data).await
@@ -829,7 +833,7 @@ fn gen_root_indexed_singleton_item(indexed_singleton: &IndexedSingletonDef) -> T
     };
     let impls = quote! {
         async fn get(ctx: __ctx!(), key: &str) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError> {
-            ctx.$ctx_repo_accessor().await?.#manager_ident().get(key).await
+            ctx.$ctx_repo_accessor().await?.#manager_ident().find(key).await
         }
         async fn set(ctx: __ctx!(), data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
             ctx.$ctx_repo_accessor().await?.#manager_ident().set(data).await
@@ -873,11 +877,15 @@ fn gen_child_standard_item(
 
     let (basic_methods, basic_impls) = (
         quote! {
+            async fn find(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError>;
             async fn get(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError>;
             async fn update(&self, ctx: __ctx!()) -> ::std::result::Result<(), ::fractic_server_error::ServerError>;
                 async fn unchecked_list(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::vec::Vec<#ty_ident>, ::fractic_server_error::ServerError>;
         },
         quote! {
+            async fn find(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<::std::option::Option<#ty_ident>, ::fractic_server_error::ServerError> {
+                ctx.$ctx_repo_accessor().await?.#manager_ident().find(id).await
+            }
             async fn get(ctx: __ctx!(), id: ::fractic_aws_dynamo::schema::PkSk) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
                 ctx.$ctx_repo_accessor().await?.#manager_ident().get(id).await
             }
@@ -1108,7 +1116,7 @@ fn gen_child_standard_item(
                 },
                 quote! {
                     async fn #get_fn(&self, ctx: __ctx!()) -> ::std::result::Result<::std::option::Option<#s_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().get(self).await
+                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().find(self).await
                     }
                     async fn #set_fn(&self, ctx: __ctx!(), data: #s_data_ident) -> ::std::result::Result<#s_ident, ::fractic_server_error::ServerError> {
                         ctx.$ctx_repo_accessor().await?.#s_manager_ident().set(self, data).await
@@ -1152,7 +1160,7 @@ fn gen_child_standard_item(
                 },
                 quote! {
                     async fn #get_fn(&self, ctx: __ctx!(), key: &str) -> ::std::result::Result<::std::option::Option<#s_ident>, ::fractic_server_error::ServerError> {
-                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().get(self, key).await
+                        ctx.$ctx_repo_accessor().await?.#s_manager_ident().find(self, key).await
                     }
                     async fn #set_fn(&self, ctx: __ctx!(), data: #s_data_ident) -> ::std::result::Result<#s_ident, ::fractic_server_error::ServerError> {
                         ctx.$ctx_repo_accessor().await?.#s_manager_ident().set(self, data).await
@@ -1222,7 +1230,7 @@ fn gen_child_singleton_item(singleton: &SingletonDef, parent_ident: &Ident) -> T
                 data: #parent_data_ident::default(),
                 auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
             };
-            ctx.$ctx_repo_accessor().await?.#manager_ident().get(&tmp_dummy).await
+            ctx.$ctx_repo_accessor().await?.#manager_ident().find(&tmp_dummy).await
         }
         async fn unchecked_set(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
             let tmp_dummy = #parent_ident {
@@ -1278,7 +1286,7 @@ fn gen_child_indexed_singleton_item(
                 data: #parent_data_ident::default(),
                 auto_fields: ::fractic_aws_dynamo::schema::AutoFields::default(),
             };
-            ctx.$ctx_repo_accessor().await?.#manager_ident().get(&tmp_dummy, key).await
+            ctx.$ctx_repo_accessor().await?.#manager_ident().find(&tmp_dummy, key).await
         }
         async fn unchecked_set(ctx: __ctx!(), parent_id: ::fractic_aws_dynamo::schema::PkSk, data: #ty_data_ident) -> ::std::result::Result<#ty_ident, ::fractic_server_error::ServerError> {
             let tmp_dummy = #parent_ident {
