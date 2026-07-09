@@ -147,6 +147,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             pub async fn new(ctx: __ctx!()) -> ::std::result::Result<Self, ::fractic_server_error::ServerError> {
                 let main_db = ::std::sync::Arc::new(::fractic_aws_dynamo::util::DynamoUtil::new(ctx, ctx.$ctx_main_db_method()).await?);
                 let archive_db = main_db.clone();
+                let _ = &archive_db;
                 let crud_algorithms = ::std::sync::Arc::new(<$crud_algorithms>::new(main_db.clone()));
                 Ok(Self {
                     #(#ordered_inits,)*
