@@ -8,7 +8,7 @@ edition = "2024"
 proc-macro = true
 
 [dependencies]
-convert_case = "^0.9.0"
+convert_case = "^0.11.0"
 fractic-server-error = { git = "https://github.com/fractic-io/rust-server-error.git" }
 futures-util = "^0.3.31"
 proc-macro2 = "^1.0.103"
