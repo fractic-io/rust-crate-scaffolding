@@ -14,12 +14,6 @@ use crate::{
     helpers::to_snake_case,
 };
 
-fn dynamo_data_type(ident: &Ident) -> TokenStream {
-    quote! {
-        <#ident as ::fractic_aws_dynamo::schema::DynamoObject>::Data
-    }
-}
-
 pub fn generate(model: &ConfigModel) -> TokenStream {
     let repo_name = &model.repository_name;
     let repo_name_snake = to_snake_case(&repo_name.to_string());
@@ -1348,6 +1342,15 @@ fn gen_child_indexed_singleton_item(
     }
 }
 
+// Helpers.
+// ----------------------------------------------------------------------------
+
+fn dynamo_data_type(ident: &Ident) -> TokenStream {
+    quote! {
+        <#ident as ::fractic_aws_dynamo::schema::DynamoObject>::Data
+    }
+}
+
 fn method_ident_for(prefix: &str, ident: &Ident) -> Ident {
     let snake = to_snake_case(&ident.to_string());
     let name = format!("{}_{}", prefix, snake);
@@ -1408,6 +1411,9 @@ fn pluralize_pascal(s: &str) -> String {
         base
     }
 }
+
+// Tests.
+// ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
