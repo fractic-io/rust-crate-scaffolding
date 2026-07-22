@@ -1359,25 +1359,22 @@ fn method_ident_for(prefix: &str, ident: &Ident) -> Ident {
 
 fn stripped_pascal(parent: &Ident, child: &Ident) -> String {
     let parent = parent.to_string();
-    let child = child.to_string();
+    let mut child = child.to_string();
     let overlap_len = parent
         .char_indices()
         .filter(|(_, character)| character.is_uppercase())
-        .map(|(start, _)| &parent[start..])
-        .filter(|suffix| child.starts_with(suffix))
-        .filter(|suffix| {
-            child[suffix.len()..]
-                .chars()
-                .next()
-                .is_none_or(char::is_uppercase)
-        })
-        .map(str::len)
-        .max();
+        .find_map(|(start, _)| {
+            let suffix = &parent[start..];
+            let remainder = child.strip_prefix(suffix)?;
+            (!remainder.is_empty() && remainder.starts_with(char::is_uppercase))
+                .then_some(suffix.len())
+        });
 
-    match overlap_len {
-        Some(len) if len < child.len() => child[len..].to_owned(),
-        _ => child,
+    if let Some(len) = overlap_len {
+        child.replace_range(..len, "");
     }
+
+    child
 }
 
 /// Very small heuristic pluralizer.
