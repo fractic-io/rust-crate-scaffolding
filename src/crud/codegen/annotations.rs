@@ -1355,13 +1355,25 @@ fn method_ident_for(prefix: &str, ident: &Ident) -> Ident {
 }
 
 fn stripped_pascal(parent: &Ident, child: &Ident) -> String {
-    let p = parent.to_string();
-    let c = child.to_string();
-    if c.starts_with(&p) {
-        let rem = &c[p.len()..];
-        if rem.is_empty() { c } else { rem.to_string() }
-    } else {
-        c
+    let parent = parent.to_string();
+    let child = child.to_string();
+    let overlap_len = parent
+        .char_indices()
+        .filter(|(_, character)| character.is_uppercase())
+        .map(|(start, _)| &parent[start..])
+        .filter(|suffix| child.starts_with(suffix))
+        .filter(|suffix| {
+            child[suffix.len()..]
+                .chars()
+                .next()
+                .is_none_or(char::is_uppercase)
+        })
+        .map(str::len)
+        .max();
+
+    match overlap_len {
+        Some(len) if len < child.len() => child[len..].to_owned(),
+        _ => child,
     }
 }
 
@@ -1394,5 +1406,43 @@ fn pluralize_pascal(s: &str) -> String {
         let mut base = s.to_string();
         base.push('s');
         base
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stripped_pascal;
+    use syn::Ident;
+
+    fn ident(value: &str) -> Ident {
+        syn::parse_str(value).unwrap()
+    }
+
+    #[test]
+    fn strips_longest_parent_suffix_at_pascal_boundaries() {
+        assert_eq!(
+            stripped_pascal(&ident("JourneyArc"), &ident("ArcNarrativeItem")),
+            "NarrativeItem"
+        );
+        assert_eq!(
+            stripped_pascal(&ident("JourneyArc"), &ident("JourneyArcNarrativeItem")),
+            "NarrativeItem"
+        );
+    }
+
+    #[test]
+    fn does_not_strip_partial_capitalized_words() {
+        assert_eq!(
+            stripped_pascal(&ident("FooBar"), &ident("BaristaItem")),
+            "BaristaItem"
+        );
+    }
+
+    #[test]
+    fn keeps_identical_parent_and_child_names() {
+        assert_eq!(
+            stripped_pascal(&ident("JourneyArc"), &ident("JourneyArc")),
+            "JourneyArc"
+        );
     }
 }
