@@ -14,12 +14,6 @@ use crate::{
     helpers::to_snake_case,
 };
 
-fn dynamo_data_type(ident: &Ident) -> TokenStream {
-    quote! {
-        <#ident as ::fractic_aws_dynamo::schema::DynamoObject>::Data
-    }
-}
-
 pub fn generate(model: &ConfigModel) -> TokenStream {
     let repo_name = &model.repository_name;
     let repo_name_snake = to_snake_case(&repo_name.to_string());
@@ -1348,6 +1342,15 @@ fn gen_child_indexed_singleton_item(
     }
 }
 
+// Helpers.
+// ----------------------------------------------------------------------------
+
+fn dynamo_data_type(ident: &Ident) -> TokenStream {
+    quote! {
+        <#ident as ::fractic_aws_dynamo::schema::DynamoObject>::Data
+    }
+}
+
 fn method_ident_for(prefix: &str, ident: &Ident) -> Ident {
     let snake = to_snake_case(&ident.to_string());
     let name = format!("{}_{}", prefix, snake);
@@ -1355,14 +1358,23 @@ fn method_ident_for(prefix: &str, ident: &Ident) -> Ident {
 }
 
 fn stripped_pascal(parent: &Ident, child: &Ident) -> String {
-    let p = parent.to_string();
-    let c = child.to_string();
-    if c.starts_with(&p) {
-        let rem = &c[p.len()..];
-        if rem.is_empty() { c } else { rem.to_string() }
-    } else {
-        c
+    let parent = parent.to_string();
+    let mut child = child.to_string();
+    let overlap_len = parent
+        .char_indices()
+        .filter(|(_, character)| character.is_uppercase())
+        .find_map(|(start, _)| {
+            let suffix = &parent[start..];
+            let remainder = child.strip_prefix(suffix)?;
+            (!remainder.is_empty() && remainder.starts_with(char::is_uppercase))
+                .then_some(suffix.len())
+        });
+
+    if let Some(len) = overlap_len {
+        child.replace_range(..len, "");
     }
+
+    child
 }
 
 /// Very small heuristic pluralizer.
@@ -1394,5 +1406,46 @@ fn pluralize_pascal(s: &str) -> String {
         let mut base = s.to_string();
         base.push('s');
         base
+    }
+}
+
+// Tests.
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::stripped_pascal;
+    use syn::Ident;
+
+    fn ident(value: &str) -> Ident {
+        syn::parse_str(value).unwrap()
+    }
+
+    #[test]
+    fn strips_longest_parent_suffix_at_pascal_boundaries() {
+        assert_eq!(
+            stripped_pascal(&ident("JourneyArc"), &ident("ArcNarrativeItem")),
+            "NarrativeItem"
+        );
+        assert_eq!(
+            stripped_pascal(&ident("JourneyArc"), &ident("JourneyArcNarrativeItem")),
+            "NarrativeItem"
+        );
+    }
+
+    #[test]
+    fn does_not_strip_partial_capitalized_words() {
+        assert_eq!(
+            stripped_pascal(&ident("FooBar"), &ident("BaristaItem")),
+            "BaristaItem"
+        );
+    }
+
+    #[test]
+    fn keeps_identical_parent_and_child_names() {
+        assert_eq!(
+            stripped_pascal(&ident("JourneyArc"), &ident("JourneyArc")),
+            "JourneyArc"
+        );
     }
 }
