@@ -1368,13 +1368,38 @@ fn stripped_pascal(parent: &Ident, child: &Ident) -> String {
             let remainder = child.strip_prefix(suffix)?;
             (!remainder.is_empty() && remainder.starts_with(char::is_uppercase))
                 .then_some(suffix.len())
-        });
+        })
+        .or_else(|| shared_pascal_prefix_len(&parent, &child));
 
     if let Some(len) = overlap_len {
         child.replace_range(..len, "");
     }
 
     child
+}
+
+fn shared_pascal_prefix_len(parent: &str, child: &str) -> Option<usize> {
+    let common_len = parent
+        .char_indices()
+        .zip(child.char_indices())
+        .take_while(|((_, parent), (_, child))| parent == child)
+        .map(|((index, character), _)| index + character.len_utf8())
+        .last()
+        .unwrap_or_default();
+    if common_len == parent.len() || common_len == child.len() {
+        return None;
+    }
+
+    parent
+        .char_indices()
+        .filter(|(index, character)| {
+            *index > 0
+                && *index <= common_len
+                && character.is_uppercase()
+                && child[*index..].starts_with(char::is_uppercase)
+        })
+        .map(|(index, _)| index)
+        .next_back()
 }
 
 /// Very small heuristic pluralizer.
@@ -1434,10 +1459,30 @@ mod tests {
     }
 
     #[test]
+    fn strips_longest_shared_prefix_at_pascal_boundaries() {
+        assert_eq!(
+            stripped_pascal(&ident("RouteTimingProfile"), &ident("RouteTimingPoint")),
+            "Point"
+        );
+        assert_eq!(
+            stripped_pascal(&ident("RoutePart"), &ident("RoutePoint")),
+            "Point"
+        );
+        assert_eq!(
+            stripped_pascal(&ident("AreaPart"), &ident("AreaPoint")),
+            "Point"
+        );
+    }
+
+    #[test]
     fn does_not_strip_partial_capitalized_words() {
         assert_eq!(
             stripped_pascal(&ident("FooBar"), &ident("BaristaItem")),
             "BaristaItem"
+        );
+        assert_eq!(
+            stripped_pascal(&ident("RoutePart"), &ident("RouterPoint")),
+            "RouterPoint"
         );
     }
 
