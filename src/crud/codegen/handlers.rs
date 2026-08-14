@@ -114,15 +114,39 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         )
         .collect::<Vec<_>>();
 
-    // Compose generation macro.
-    let root_handlers_iter = root_handlers.into_iter();
-    let child_handlers_iter = child_handlers.into_iter();
+    // Compose generation macro. Server transports use the normal arm, which
+    // initializes a repository and emits thin public wrappers. In-process
+    // transports use `@injected`, which emits only the repository-injected
+    // handler cores.
     quote! {
         #[allow(unused_macros)]
         #[macro_export]
         macro_rules! #macro_name_ident {
+            (@injected) => {
+                macro_rules! __emit_initialized_wrapper {
+                    ($item:item) => {};
+                }
+                macro_rules! __placeholder_item {
+                    ($ty:path, $id:expr) => {{
+                        $ty {
+                            id: $id,
+                            data: ::core::default::Default::default(),
+                            auto_fields: ::core::default::Default::default(),
+                        }
+                    }};
+                }
+                $crate::#macro_name_ident!(@handler_cores);
+            };
+            (@handler_cores) => {
+                #crud_result_enum
+                #(#root_handlers)*
+                #(#child_handlers)*
+            };
             ($($repo_init:tt)+) => {
                 macro_rules! __repo_init { () => { { $($repo_init)+ } } }
+                macro_rules! __emit_initialized_wrapper {
+                    ($item:item) => { $item };
+                }
 
                 /// The generated handlers forward CRUD operations into calls to
                 /// repository methods, but for type safety the repository
@@ -143,95 +167,12 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         }
                     }};
                 }
-
-                #crud_result_enum
-                #(#root_handlers_iter)*
-                #(#child_handlers_iter)*
+                $crate::#macro_name_ident!(@handler_cores);
             };
         }
 
         #[allow(unused_imports)]
         pub(crate) use #macro_name_ident;
-    }
-}
-
-/// Generates repository-injected handler implementations for transports that
-/// own repository initialization, such as the generated non-TTY CLI.
-pub fn generate_for_cli(model: &ConfigModel) -> TokenStream {
-    let repo_name = &model.repository_name;
-    let crud_result_enum = quote! {
-        #[derive(::serde::Serialize)]
-        #[serde(untagged)]
-        pub enum __CrudOperationResult<T>
-        where
-            T: ::fractic_aws_dynamo::schema::DynamoObject + ::serde::Serialize,
-        {
-            CreatedId { created_id: ::fractic_aws_dynamo::schema::PkSk },
-            CreatedIds { created_ids: ::std::vec::Vec<::fractic_aws_dynamo::schema::PkSk> },
-            Item(T),
-            Items(::std::vec::Vec<T>),
-            Unit,
-        }
-    };
-    let handlers = model
-        .ordered_objects
-        .iter()
-        .map(|object| match object.parents {
-            Some(_) => gen_child_standard_handler(object, true, repo_name),
-            None => gen_root_standard_handler(object, true, repo_name),
-        })
-        .chain(
-            model
-                .unordered_objects
-                .iter()
-                .map(|object| match object.parents {
-                    Some(_) => gen_child_standard_handler(object, false, repo_name),
-                    None => gen_root_standard_handler(object, false, repo_name),
-                }),
-        )
-        .chain(
-            model
-                .batch_objects
-                .iter()
-                .map(|object| match object.parents {
-                    Some(_) => gen_child_batch_handler(object, repo_name),
-                    None => gen_root_batch_handler(object, repo_name),
-                }),
-        )
-        .chain(
-            model
-                .singleton_objects
-                .iter()
-                .map(|object| match object.parents {
-                    Some(_) => gen_child_singleton_handler(object, repo_name),
-                    None => gen_root_singleton_handler(object, repo_name),
-                }),
-        )
-        .chain(
-            model
-                .indexed_singleton_objects
-                .iter()
-                .map(|object| match object.parents {
-                    Some(_) => gen_child_indexed_singleton_handler(object, repo_name),
-                    None => gen_root_indexed_singleton_handler(object, repo_name),
-                }),
-        );
-
-    quote! {
-        macro_rules! __repo_init {
-            () => {{ unreachable!("repository-injected handler wrapper was called") }};
-        }
-        macro_rules! __placeholder_item {
-            ($ty:path, $id:expr) => {{
-                $ty {
-                    id: $id,
-                    data: ::core::default::Default::default(),
-                    auto_fields: ::core::default::Default::default(),
-                }
-            }};
-        }
-        #crud_result_enum
-        #(#handlers)*
     }
 }
 
@@ -512,11 +453,13 @@ fn gen_root_standard_handler(
     };
 
     quote! {
-        pub async fn #handler_ident(
+        __emit_initialized_wrapper! {
+            pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             #with_repo_ident(__repo, operation).await
+        }
         }
 
         pub async fn #with_repo_ident<__R>(
@@ -605,11 +548,13 @@ fn gen_root_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
     };
 
     quote! {
-        pub async fn #handler_ident(
+        __emit_initialized_wrapper! {
+            pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             #with_repo_ident(__repo, operation).await
+        }
         }
 
         pub async fn #with_repo_ident<__R>(
@@ -737,11 +682,13 @@ fn gen_root_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> To
     };
 
     quote! {
-        pub async fn #handler_ident(
+        __emit_initialized_wrapper! {
+            pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             #with_repo_ident(__repo, operation).await
+        }
         }
 
         pub async fn #with_repo_ident<__R>(
@@ -984,11 +931,13 @@ fn gen_root_indexed_singleton_handler(
     };
 
     quote! {
-        pub async fn #handler_ident(
+        __emit_initialized_wrapper! {
+            pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             #with_repo_ident(__repo, operation).await
+        }
         }
 
         pub async fn #with_repo_ident<__R>(
@@ -1307,11 +1256,13 @@ fn gen_child_standard_handler(
     };
 
     quote! {
-        pub async fn #handler_ident(
+        __emit_initialized_wrapper! {
+            pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             #with_repo_ident(__repo, operation).await
+        }
         }
 
         pub async fn #with_repo_ident<__R>(
@@ -1412,11 +1363,13 @@ fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
     };
 
     quote! {
-        pub async fn #handler_ident(
+        __emit_initialized_wrapper! {
+            pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             #with_repo_ident(__repo, operation).await
+        }
         }
 
         pub async fn #with_repo_ident<__R>(
@@ -1554,11 +1507,13 @@ fn gen_child_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> T
     };
 
     quote! {
-        pub async fn #handler_ident(
+        __emit_initialized_wrapper! {
+            pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             #with_repo_ident(__repo, operation).await
+        }
         }
 
         pub async fn #with_repo_ident<__R>(
@@ -1816,11 +1771,13 @@ fn gen_child_indexed_singleton_handler(
     };
 
     quote! {
-        pub async fn #handler_ident(
+        __emit_initialized_wrapper! {
+            pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             #with_repo_ident(__repo, operation).await
+        }
         }
 
         pub async fn #with_repo_ident<__R>(
