@@ -143,6 +143,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         }
                     }};
                 }
+
                 #crud_result_enum
                 #(#root_handlers_iter)*
                 #(#child_handlers_iter)*
@@ -433,8 +434,8 @@ fn gen_root_standard_handler(
         pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             use ::fractic_aws_apigateway::CrudOperation::*;
+            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             match operation {
                 #list_arm
                 #create_arm
@@ -515,8 +516,8 @@ fn gen_root_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
         pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             use ::fractic_aws_apigateway::CrudOperation::*;
+            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             match operation {
                 #list_arm
                 #delete_all_arm
@@ -636,8 +637,8 @@ fn gen_root_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> To
         pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             use ::fractic_aws_apigateway::CrudOperation::*;
+            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             match operation {
                 #read_arm
                 #create_arm
@@ -872,8 +873,8 @@ fn gen_root_indexed_singleton_handler(
         pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             use ::fractic_aws_apigateway::CrudOperation::*;
+            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             match operation {
                 #list_arm
                 #read_arm
@@ -1184,8 +1185,8 @@ fn gen_child_standard_handler(
         pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             use ::fractic_aws_apigateway::CrudOperation::*;
+            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             match operation {
                 #list_arm
                 #create_arm
@@ -1278,8 +1279,8 @@ fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
         pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             use ::fractic_aws_apigateway::CrudOperation::*;
+            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             match operation {
                 #list_arm
                 #delete_all_arm
@@ -1409,8 +1410,8 @@ fn gen_child_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> T
         pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             use ::fractic_aws_apigateway::CrudOperation::*;
+            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             match operation {
                 #read_arm
                 #create_arm
@@ -1660,8 +1661,8 @@ fn gen_child_indexed_singleton_handler(
         pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             use ::fractic_aws_apigateway::CrudOperation::*;
+            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
             match operation {
                 #list_arm
                 #read_arm

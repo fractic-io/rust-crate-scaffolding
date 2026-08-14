@@ -10,38 +10,38 @@ mod kw {
     syn::custom_keyword!(input);
     syn::custom_keyword!(output);
     syn::custom_keyword!(deprecated);
-    syn::custom_keyword!(access);
+    syn::custom_keyword!(class);
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AccessAst, ConfigAst};
+    use super::{ClassAst, ConfigAst};
 
     #[test]
-    fn parses_access_class_independent_of_property_order() {
+    fn parses_class_independent_of_property_order() {
         let ast: ConfigAst = syn::parse_str(
             r#"
             ExampleRepository;
             function list_items {
-                access: read
+                class: read
                 input: None
                 output: Vec<String>
             }
             function delete_item {
                 input: { id: String }
                 output: None
-                access: destructive
+                class: destructive
             }
             "#,
         )
         .unwrap();
 
-        assert_eq!(ast.functions[0].access, AccessAst::Read);
-        assert_eq!(ast.functions[1].access, AccessAst::Destructive);
+        assert_eq!(ast.functions[0].class, ClassAst::Read);
+        assert_eq!(ast.functions[1].class, ClassAst::Destructive);
     }
 
     #[test]
-    fn defaults_unclassified_operations_to_internal_access() {
+    fn defaults_unclassified_operations_to_internal() {
         let ast: ConfigAst = syn::parse_str(
             r#"
             ExampleRepository;
@@ -53,7 +53,24 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(ast.functions[0].access, AccessAst::Internal);
+        assert_eq!(ast.functions[0].class, ClassAst::Internal);
+    }
+
+    #[test]
+    fn rejects_unknown_classes() {
+        let error = syn::parse_str::<ConfigAst>(
+            r#"
+            ExampleRepository;
+            function helper {
+                input: None
+                output: None
+                class: public
+            }
+            "#,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unknown operation class"));
     }
 }
 
@@ -98,11 +115,11 @@ pub struct FunctionAst {
     pub output: ValueAst,
     pub kind: FunctionKindAst,
     pub deprecated: Option<DeprecatedAst>,
-    pub access: AccessAst,
+    pub class: ClassAst,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AccessAst {
+pub enum ClassAst {
     Read,
     Write,
     Destructive,
@@ -154,7 +171,7 @@ impl Parse for FunctionAst {
         let mut input_val: Option<ValueAst> = None;
         let mut output_val: Option<ValueAst> = None;
         let mut deprecated_val: Option<DeprecatedAst> = None;
-        let mut access_val: Option<AccessAst> = None;
+        let mut class_val: Option<ClassAst> = None;
         while !content.is_empty() {
             // Check for accidental comma.
             if content.peek(Token![,]) {
@@ -172,7 +189,7 @@ impl Parse for FunctionAst {
                 let _colon: Token![:] = content.parse()?;
                 let value = parse_value_until_key_or_end(
                     &content,
-                    &[KeyStop::Output, KeyStop::Deprecated, KeyStop::Access],
+                    &[KeyStop::Output, KeyStop::Deprecated, KeyStop::Class],
                 )?;
                 if input_val.is_some() {
                     return Err(Error::new(name.span(), "duplicate `input` property"));
@@ -182,10 +199,8 @@ impl Parse for FunctionAst {
                 // Parse: output: <value>
                 let _k: kw::output = content.parse()?;
                 let _colon: Token![:] = content.parse()?;
-                let value = parse_value_until_key_or_end(
-                    &content,
-                    &[KeyStop::Deprecated, KeyStop::Access],
-                )?;
+                let value =
+                    parse_value_until_key_or_end(&content, &[KeyStop::Deprecated, KeyStop::Class])?;
                 if output_val.is_some() {
                     return Err(Error::new(name.span(), "duplicate `output` property"));
                 }
@@ -229,22 +244,22 @@ impl Parse for FunctionAst {
                     }
                     deprecated_val = Some(DeprecatedAst::Flag);
                 }
-            } else if content.peek(kw::access) {
-                let key: kw::access = content.parse()?;
+            } else if content.peek(kw::class) {
+                let key: kw::class = content.parse()?;
                 let _colon: Token![:] = content.parse()?;
-                if access_val.is_some() {
-                    return Err(Error::new(key.span, "duplicate `access` property"));
+                if class_val.is_some() {
+                    return Err(Error::new(key.span, "duplicate `class` property"));
                 }
                 let value: Ident = content.parse()?;
-                access_val = Some(match value.to_string().as_str() {
-                    "read" => AccessAst::Read,
-                    "write" => AccessAst::Write,
-                    "destructive" => AccessAst::Destructive,
-                    "internal" => AccessAst::Internal,
+                class_val = Some(match value.to_string().as_str() {
+                    "read" => ClassAst::Read,
+                    "write" => ClassAst::Write,
+                    "destructive" => ClassAst::Destructive,
+                    "internal" => ClassAst::Internal,
                     _ => {
                         return Err(Error::new(
                             value.span(),
-                            "unknown access class; expected `read`, `write`, `destructive`, or `internal`",
+                            "unknown operation class; expected `read`, `write`, `destructive`, or `internal`",
                         ));
                     }
                 });
@@ -254,7 +269,7 @@ impl Parse for FunctionAst {
                 return Err(Error::new(
                     ahead.span(),
                     format!(
-                        "unknown key `{}`; expected `input`, `output`, `deprecated`, or `access`",
+                        "unknown key `{}`; expected `input`, `output`, `deprecated`, or `class`",
                         ahead
                     ),
                 ));
@@ -271,7 +286,7 @@ impl Parse for FunctionAst {
             output,
             kind,
             deprecated: deprecated_val,
-            access: access_val.unwrap_or(AccessAst::Internal),
+            class: class_val.unwrap_or(ClassAst::Internal),
         })
     }
 }
@@ -339,7 +354,7 @@ impl Parse for FieldAst {
 enum KeyStop {
     Output,
     Deprecated,
-    Access,
+    Class,
 }
 
 /// Parse a ValueAst until either the next key (currently only `output`) or end
@@ -440,8 +455,8 @@ fn read_tokens_until_next_key_or_end(
             {
                 break;
             }
-            if stops.iter().any(|s| matches!(s, KeyStop::Access))
-                && content.peek(kw::access)
+            if stops.iter().any(|s| matches!(s, KeyStop::Class))
+                && content.peek(kw::class)
                 && content.peek2(Token![:])
             {
                 break;

@@ -283,20 +283,20 @@ fn push_descriptor(
     output: &mut Vec<TokenStream>,
     object: &str,
     operation: &str,
-    access: &str,
+    class: &str,
     ty: &Ident,
     fields: TokenStream,
 ) {
     let name = format!("{object}.{operation}");
-    let access = match access {
-        "read" => quote! { __runtime::AccessClass::Read },
-        "write" => quote! { __runtime::AccessClass::Write },
-        _ => quote! { __runtime::AccessClass::Destructive },
+    let class = match class {
+        "read" => quote! { __runtime::OperationClass::Read },
+        "write" => quote! { __runtime::OperationClass::Write },
+        _ => quote! { __runtime::OperationClass::Destructive },
     };
     output.push(quote! {
         __runtime::OperationDescriptor {
             name: #name,
-            access: #access,
+            class: #class,
             deprecated: false,
             input: __runtime::ValueDescriptor {
                 rust_type: concat!("CrudOperation<", stringify!(#ty), ">"),

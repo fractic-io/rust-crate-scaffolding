@@ -3,7 +3,7 @@ use quote::quote;
 
 mod ast;
 mod codegen {
-    pub mod cli;
+    pub mod cli_interface;
     pub mod handlers;
     pub mod repository;
 }
@@ -15,10 +15,10 @@ pub use model::ConfigModel;
 pub fn generate(model: &ConfigModel) -> TokenStream {
     let repository_trait = codegen::repository::generate(model);
     let handlers_macro = codegen::handlers::generate(model);
-    let cli_macro = codegen::cli::generate(model);
+    let cli_interface_macro = codegen::cli_interface::generate(model);
     quote! {
         #repository_trait
         #handlers_macro
-        #cli_macro
+        #cli_interface_macro
     }
 }

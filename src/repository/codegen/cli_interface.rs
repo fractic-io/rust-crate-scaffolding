@@ -4,7 +4,7 @@ use syn::Type;
 
 use crate::{
     helpers::{to_pascal_case, to_snake_case},
-    repository::model::{AccessClass, ConfigModel, FieldSpec, ValueModel},
+    repository::model::{ConfigModel, FieldSpec, OperationClass, ValueModel},
 };
 
 pub fn generate(model: &ConfigModel) -> TokenStream {
@@ -63,7 +63,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
 
 fn operation_descriptor(function: &crate::repository::model::FunctionModel) -> TokenStream {
     let name = function.name.to_string().replace('_', "-");
-    let access = access_tokens(function.access);
+    let class = class_tokens(function.class);
     let deprecated = function.is_deprecated;
     let input = value_descriptor(&function.input, true);
     let output = value_descriptor(&function.output, false);
@@ -71,7 +71,7 @@ fn operation_descriptor(function: &crate::repository::model::FunctionModel) -> T
     quote! {
         __runtime::OperationDescriptor {
             name: #name,
-            access: #access,
+            class: #class,
             deprecated: #deprecated,
             input: #input,
             output: #output,
@@ -187,11 +187,11 @@ fn dispatch_input(value: &ValueModel, input_ident: &Ident) -> (TokenStream, Toke
     }
 }
 
-fn access_tokens(access: AccessClass) -> TokenStream {
-    match access {
-        AccessClass::Read => quote! { __runtime::AccessClass::Read },
-        AccessClass::Write => quote! { __runtime::AccessClass::Write },
-        AccessClass::Destructive => quote! { __runtime::AccessClass::Destructive },
-        AccessClass::Internal => quote! { __runtime::AccessClass::Internal },
+fn class_tokens(class: OperationClass) -> TokenStream {
+    match class {
+        OperationClass::Read => quote! { __runtime::OperationClass::Read },
+        OperationClass::Write => quote! { __runtime::OperationClass::Write },
+        OperationClass::Destructive => quote! { __runtime::OperationClass::Destructive },
+        OperationClass::Internal => quote! { __runtime::OperationClass::Internal },
     }
 }
