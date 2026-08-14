@@ -56,10 +56,10 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                             &self,
                             operation: &str,
                             input: ::serde_json::Value,
-                        ) -> ::std::result::Result<::serde_json::Value, __runtime::ApiCliError> {
+                        ) -> ::std::result::Result<::serde_json::Value, __runtime::CliEndpointError> {
                             match operation {
                                 #(#dispatch_arms),*,
-                                _ => Err(__runtime::ApiCliError::unknown_operation(
+                                _ => Err(__runtime::CliEndpointError::unknown_operation(
                                     $endpoint_name,
                                     operation,
                                 )),
