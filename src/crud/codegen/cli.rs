@@ -9,12 +9,8 @@ use crate::{
 pub fn generate(model: &ConfigModel) -> TokenStream {
     let repo_name = &model.repository_name;
     let repo_name_snake = to_snake_case(&repo_name.to_string());
-    let catalog_macro_name = Ident::new(
-        &format!("generate_{}_operation_catalog", repo_name_snake),
-        repo_name.span(),
-    );
-    let handler_macro_name = Ident::new(
-        &format!("generate_{}_local_operation_handler", repo_name_snake),
+    let interface_macro_name = Ident::new(
+        &format!("generate_{}_cli_interface", repo_name_snake),
         repo_name.span(),
     );
     let handlers_macro = Ident::new(
@@ -30,58 +26,31 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     quote! {
         #[allow(unused_macros)]
         #[macro_export]
-        macro_rules! #catalog_macro_name {
-            ($module:ident, $operation_name:literal, $runtime:path) => {
-                pub mod $module {
-                    use $runtime as __runtime;
-
-                    pub static DESCRIPTOR: __runtime::RepositoryDescriptor =
-                        __runtime::RepositoryDescriptor {
-                            name: $operation_name,
-                            repository_type: stringify!(#repo_name),
-                            operations: &[#(#descriptors),*],
-                        };
-                }
-            };
-        }
-
-        #[allow(unused_macros)]
-        #[macro_export]
-        macro_rules! #handler_macro_name {
-            ($module:ident, $descriptor:path, $runtime:path) => {
+        macro_rules! #interface_macro_name {
+            ($module:ident, $repository_name:literal, $runtime:path, $($repo_init:tt)+) => {
                 pub mod $module {
                     use super::*;
                     use $runtime as __runtime;
 
-                    $crate::#handlers_macro!(@injected);
+                    $crate::#handlers_macro!($($repo_init)+);
 
-                    pub struct LocalHandler<R: #repo_name + ?Sized> {
-                        repository: ::std::sync::Arc<R>,
-                    }
+                    pub static DESCRIPTOR: __runtime::RepositoryDescriptor =
+                        __runtime::RepositoryDescriptor {
+                            name: $repository_name,
+                            repository_type: stringify!(#repo_name),
+                            operations: &[#(#descriptors),*],
+                        };
 
-                    impl<R: #repo_name + ?Sized> LocalHandler<R> {
-                        pub fn new(repository: ::std::sync::Arc<R>) -> Self {
-                            Self { repository }
-                        }
-                    }
-
-                    #[::async_trait::async_trait]
-                    impl<R> __runtime::LocalOperationHandler for LocalHandler<R>
-                    where
-                        R: #repo_name + ?Sized + 'static,
-                    {
-                        async fn call(
-                            &self,
-                            operation: &str,
-                            input: ::serde_json::Value,
-                        ) -> ::std::result::Result<::serde_json::Value, __runtime::AgentError> {
-                            match operation {
-                                #(#dispatch_arms),*,
-                                _ => Err(__runtime::AgentError::unknown_operation(
-                                    ($descriptor).name,
-                                    operation,
-                                )),
-                            }
+                    pub async fn call(
+                        operation: &str,
+                        input: ::serde_json::Value,
+                    ) -> ::std::result::Result<::serde_json::Value, __runtime::CliError> {
+                        match operation {
+                            #(#dispatch_arms),*,
+                            _ => Err(__runtime::CliError::unknown_operation(
+                                $repository_name,
+                                operation,
+                            )),
                         }
                     }
                 }
@@ -89,9 +58,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         }
 
         #[allow(unused_imports)]
-        pub(crate) use #catalog_macro_name;
-        #[allow(unused_imports)]
-        pub(crate) use #handler_macro_name;
+        pub(crate) use #interface_macro_name;
     }
 }
 
@@ -393,17 +360,14 @@ fn dispatch_arms(model: &ConfigModel) -> Vec<TokenStream> {
 
 fn operation_dispatches(output: &mut Vec<TokenStream>, ty: &Ident, operations: &[&str]) {
     let object = object_name(ty);
-    let handler = format_ident!(
-        "manage_{}_handler_with_repo",
-        to_snake_case(&ty.to_string())
-    );
+    let handler = format_ident!("manage_{}_handler", to_snake_case(&ty.to_string()));
     for operation in operations {
         let name = format!("{object}.{operation}");
         output.push(quote! {
             #name => {
                 let __operation: ::fractic_aws_apigateway::CrudOperation<#ty> =
                     __runtime::decode_crud_input(input, #operation)?;
-                let __result = #handler(self.repository.clone(), __operation).await?;
+                let __result = #handler(__operation).await?;
                 __runtime::encode_output(__result)
             }
         });

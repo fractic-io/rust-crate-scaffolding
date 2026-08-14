@@ -1,5 +1,5 @@
 use proc_macro2::{Ident, TokenStream};
-use quote::{format_ident, quote};
+use quote::{ToTokens as _, format_ident, quote};
 use syn::Type;
 
 use crate::{
@@ -10,12 +10,12 @@ use crate::{
 pub fn generate(model: &ConfigModel) -> TokenStream {
     let repo_name = &model.repository_name;
     let repo_name_snake = to_snake_case(&repo_name.to_string());
-    let catalog_macro_name = Ident::new(
-        &format!("generate_{}_operation_catalog", repo_name_snake),
+    let interface_macro_name = Ident::new(
+        &format!("generate_{}_cli_interface", repo_name_snake),
         repo_name.span(),
     );
-    let handler_macro_name = Ident::new(
-        &format!("generate_{}_local_operation_handler", repo_name_snake),
+    let handlers_macro_name = Ident::new(
+        &format!("generate_{}_handlers", repo_name_snake),
         repo_name.span(),
     );
     let descriptors = model.functions.iter().map(operation_descriptor);
@@ -24,56 +24,32 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     quote! {
         #[allow(unused_macros)]
         #[macro_export]
-        macro_rules! #catalog_macro_name {
-            ($module:ident, $operation_name:literal, $runtime:path) => {
+        macro_rules! #interface_macro_name {
+            ($module:ident, $repository_name:literal, $runtime:path, $($repo_init:tt)+) => {
                 pub mod $module {
+                    use super::*;
+                    use ::std::sync::Arc;
                     use $runtime as __runtime;
+
+                    $crate::#handlers_macro_name!($($repo_init)+);
 
                     pub static DESCRIPTOR: __runtime::RepositoryDescriptor =
                         __runtime::RepositoryDescriptor {
-                            name: $operation_name,
+                            name: $repository_name,
                             repository_type: stringify!(#repo_name),
                             operations: &[#(#descriptors),*],
                         };
-                }
-            };
-        }
 
-        #[allow(unused_macros)]
-        #[macro_export]
-        macro_rules! #handler_macro_name {
-            ($module:ident, $descriptor:path, $runtime:path) => {
-                pub mod $module {
-                    use super::*;
-                    use $runtime as __runtime;
-
-                    pub struct LocalHandler<R: #repo_name + ?Sized> {
-                        repository: ::std::sync::Arc<R>,
-                    }
-
-                    impl<R: #repo_name + ?Sized> LocalHandler<R> {
-                        pub fn new(repository: ::std::sync::Arc<R>) -> Self {
-                            Self { repository }
-                        }
-                    }
-
-                    #[::async_trait::async_trait]
-                    impl<R> __runtime::LocalOperationHandler for LocalHandler<R>
-                    where
-                        R: #repo_name + ?Sized + 'static,
-                    {
-                        async fn call(
-                            &self,
-                            operation: &str,
-                            input: ::serde_json::Value,
-                        ) -> ::std::result::Result<::serde_json::Value, __runtime::AgentError> {
-                            match operation {
-                                #(#dispatch_arms),*,
-                                _ => Err(__runtime::AgentError::unknown_operation(
-                                    ($descriptor).name,
-                                    operation,
-                                )),
-                            }
+                    pub async fn call(
+                        operation: &str,
+                        input: ::serde_json::Value,
+                    ) -> ::std::result::Result<::serde_json::Value, __runtime::CliError> {
+                        match operation {
+                            #(#dispatch_arms),*,
+                            _ => Err(__runtime::CliError::unknown_operation(
+                                $repository_name,
+                                operation,
+                            )),
                         }
                     }
                 }
@@ -81,9 +57,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         }
 
         #[allow(unused_imports)]
-        pub(crate) use #catalog_macro_name;
-        #[allow(unused_imports)]
-        pub(crate) use #handler_macro_name;
+        pub(crate) use #interface_macro_name;
     }
 }
 
@@ -177,34 +151,24 @@ fn dispatch_arm(function: &crate::repository::model::FunctionModel) -> TokenStre
     let operation_name = fn_ident.to_string().replace('_', "-");
     let base_pascal = to_pascal_case(&fn_ident.to_string());
     let input_ident = format_ident!("{}Input", base_pascal);
-    let output_ident = format_ident!("{}Output", base_pascal);
+    let handler_ident = format_ident!("{}_handler", fn_ident);
     let (decode, call_args) = dispatch_input(&function.input, &input_ident);
     let invoke = if function.is_blocking {
-        quote! { self.repository.#fn_ident(#call_args) }
+        quote! { #handler_ident(#call_args) }
     } else {
-        quote! { self.repository.#fn_ident(#call_args).await }
+        quote! { #handler_ident(#call_args).await }
     };
     let resolve = if function.is_direct {
         quote! { let __result = #invoke; }
     } else {
         quote! { let __result = #invoke?; }
     };
-    let encode = match &function.output {
-        ValueModel::None | ValueModel::SingleType { .. } => {
-            quote! { __runtime::encode_output(__result) }
-        }
-        ValueModel::Struct { fields } if fields.len() == 1 => {
-            let field = &fields[0].name;
-            quote! { __runtime::encode_output(#output_ident { #field: __result }) }
-        }
-        ValueModel::Struct { .. } => quote! { __runtime::encode_output(__result) },
-    };
 
     quote! {
         #operation_name => {
             #decode
             #resolve
-            #encode
+            __runtime::encode_output(__result)
         }
     }
 }
@@ -216,27 +180,11 @@ fn dispatch_input(value: &ValueModel, input_ident: &Ident) -> (TokenStream, Toke
             quote! { let __input: #ty_tokens = __runtime::decode_input(input)?; },
             quote! { __input },
         ),
-        ValueModel::Struct { fields } => {
-            let args = fields.iter().map(|field| {
-                let name = &field.name;
-                if argument_needs_reference(field.ty_tokens.clone()) {
-                    quote! { &__input.#name }
-                } else {
-                    quote! { __input.#name }
-                }
-            });
-            (
-                quote! { let __input: #input_ident = __runtime::decode_input(input)?; },
-                quote! { #(#args),* },
-            )
-        }
+        ValueModel::Struct { .. } => (
+            quote! { let __input: #input_ident = __runtime::decode_input(input)?; },
+            quote! { __input },
+        ),
     }
-}
-
-fn argument_needs_reference(tokens: TokenStream) -> bool {
-    syn::parse2::<Type>(tokens)
-        .ok()
-        .is_some_and(|ty| matches!(ty, Type::Reference(reference) if reference.lifetime.is_none()))
 }
 
 fn access_tokens(access: AccessClass) -> TokenStream {
@@ -247,5 +195,3 @@ fn access_tokens(access: AccessClass) -> TokenStream {
         AccessClass::Internal => quote! { __runtime::AccessClass::Internal },
     }
 }
-
-use quote::ToTokens as _;

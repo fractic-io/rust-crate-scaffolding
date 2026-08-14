@@ -114,39 +114,15 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         )
         .collect::<Vec<_>>();
 
-    // Compose generation macro. Server transports use the normal arm, which
-    // initializes a repository and emits thin public wrappers. In-process
-    // transports use `@injected`, which emits only the repository-injected
-    // handler cores.
+    // Compose generation macro.
+    let root_handlers_iter = root_handlers.into_iter();
+    let child_handlers_iter = child_handlers.into_iter();
     quote! {
         #[allow(unused_macros)]
         #[macro_export]
         macro_rules! #macro_name_ident {
-            (@injected) => {
-                macro_rules! __emit_initialized_wrapper {
-                    ($item:item) => {};
-                }
-                macro_rules! __placeholder_item {
-                    ($ty:path, $id:expr) => {{
-                        $ty {
-                            id: $id,
-                            data: ::core::default::Default::default(),
-                            auto_fields: ::core::default::Default::default(),
-                        }
-                    }};
-                }
-                $crate::#macro_name_ident!(@handler_cores);
-            };
-            (@handler_cores) => {
-                #crud_result_enum
-                #(#root_handlers)*
-                #(#child_handlers)*
-            };
             ($($repo_init:tt)+) => {
                 macro_rules! __repo_init { () => { { $($repo_init)+ } } }
-                macro_rules! __emit_initialized_wrapper {
-                    ($item:item) => { $item };
-                }
 
                 /// The generated handlers forward CRUD operations into calls to
                 /// repository methods, but for type safety the repository
@@ -167,7 +143,9 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                         }
                     }};
                 }
-                $crate::#macro_name_ident!(@handler_cores);
+                #crud_result_enum
+                #(#root_handlers_iter)*
+                #(#child_handlers_iter)*
             };
         }
 
@@ -184,7 +162,6 @@ fn gen_root_standard_handler(
     let ty_ident = &root.name;
     let manager_ident = method_ident_for("manage", ty_ident);
     let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
-    let with_repo_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler_with_repo");
     let has_children = root.has_children();
 
     let list_arm = quote! {
@@ -453,22 +430,10 @@ fn gen_root_standard_handler(
     };
 
     quote! {
-        __emit_initialized_wrapper! {
-            pub async fn #handler_ident(
+        pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
-            #with_repo_ident(__repo, operation).await
-        }
-        }
-
-        pub async fn #with_repo_ident<__R>(
-            __repo: ::std::sync::Arc<__R>,
-            operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
-        ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError>
-        where
-            __R: #repo_name + ?Sized,
-        {
             use ::fractic_aws_apigateway::CrudOperation::*;
             match operation {
                 #list_arm
@@ -490,7 +455,6 @@ fn gen_root_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
     let ty_ident = &batch.name;
     let manager_ident = method_ident_for("manage", ty_ident);
     let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
-    let with_repo_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler_with_repo");
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -548,22 +512,10 @@ fn gen_root_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
     };
 
     quote! {
-        __emit_initialized_wrapper! {
-            pub async fn #handler_ident(
+        pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
-            #with_repo_ident(__repo, operation).await
-        }
-        }
-
-        pub async fn #with_repo_ident<__R>(
-            __repo: ::std::sync::Arc<__R>,
-            operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
-        ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError>
-        where
-            __R: #repo_name + ?Sized,
-        {
             use ::fractic_aws_apigateway::CrudOperation::*;
             match operation {
                 #list_arm
@@ -579,7 +531,6 @@ fn gen_root_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> To
     let ty_ident = &singleton.name;
     let manager_ident = method_ident_for("manage", ty_ident);
     let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
-    let with_repo_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler_with_repo");
 
     let read_arm = quote! {
         Read { item_ref } => {
@@ -682,22 +633,10 @@ fn gen_root_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> To
     };
 
     quote! {
-        __emit_initialized_wrapper! {
-            pub async fn #handler_ident(
+        pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
-            #with_repo_ident(__repo, operation).await
-        }
-        }
-
-        pub async fn #with_repo_ident<__R>(
-            __repo: ::std::sync::Arc<__R>,
-            operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
-        ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError>
-        where
-            __R: #repo_name + ?Sized,
-        {
             use ::fractic_aws_apigateway::CrudOperation::*;
             match operation {
                 #read_arm
@@ -716,7 +655,6 @@ fn gen_root_indexed_singleton_handler(
     let ty_ident = &indexed_singleton.name;
     let manager_ident = method_ident_for("manage", ty_ident);
     let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
-    let with_repo_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler_with_repo");
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -931,22 +869,10 @@ fn gen_root_indexed_singleton_handler(
     };
 
     quote! {
-        __emit_initialized_wrapper! {
-            pub async fn #handler_ident(
+        pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
-            #with_repo_ident(__repo, operation).await
-        }
-        }
-
-        pub async fn #with_repo_ident<__R>(
-            __repo: ::std::sync::Arc<__R>,
-            operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
-        ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError>
-        where
-            __R: #repo_name + ?Sized,
-        {
             use ::fractic_aws_apigateway::CrudOperation::*;
             match operation {
                 #list_arm
@@ -980,7 +906,6 @@ fn gen_child_standard_handler(
     };
     let manager_ident = method_ident_for("manage", ty_ident);
     let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
-    let with_repo_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler_with_repo");
     let has_children = child.has_children();
 
     let list_arm = quote! {
@@ -1256,22 +1181,10 @@ fn gen_child_standard_handler(
     };
 
     quote! {
-        __emit_initialized_wrapper! {
-            pub async fn #handler_ident(
+        pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
-            #with_repo_ident(__repo, operation).await
-        }
-        }
-
-        pub async fn #with_repo_ident<__R>(
-            __repo: ::std::sync::Arc<__R>,
-            operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
-        ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError>
-        where
-            __R: #repo_name + ?Sized,
-        {
             use ::fractic_aws_apigateway::CrudOperation::*;
             match operation {
                 #list_arm
@@ -1302,7 +1215,6 @@ fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
     };
     let manager_ident = method_ident_for("manage", ty_ident);
     let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
-    let with_repo_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler_with_repo");
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -1363,22 +1275,10 @@ fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
     };
 
     quote! {
-        __emit_initialized_wrapper! {
-            pub async fn #handler_ident(
+        pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
-            #with_repo_ident(__repo, operation).await
-        }
-        }
-
-        pub async fn #with_repo_ident<__R>(
-            __repo: ::std::sync::Arc<__R>,
-            operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
-        ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError>
-        where
-            __R: #repo_name + ?Sized,
-        {
             use ::fractic_aws_apigateway::CrudOperation::*;
             match operation {
                 #list_arm
@@ -1401,7 +1301,6 @@ fn gen_child_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> T
     };
     let manager_ident = method_ident_for("manage", ty_ident);
     let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
-    let with_repo_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler_with_repo");
 
     let read_arm = quote! {
         Read { item_ref } => {
@@ -1507,22 +1406,10 @@ fn gen_child_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> T
     };
 
     quote! {
-        __emit_initialized_wrapper! {
-            pub async fn #handler_ident(
+        pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
-            #with_repo_ident(__repo, operation).await
-        }
-        }
-
-        pub async fn #with_repo_ident<__R>(
-            __repo: ::std::sync::Arc<__R>,
-            operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
-        ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError>
-        where
-            __R: #repo_name + ?Sized,
-        {
             use ::fractic_aws_apigateway::CrudOperation::*;
             match operation {
                 #read_arm
@@ -1548,7 +1435,6 @@ fn gen_child_indexed_singleton_handler(
     };
     let manager_ident = method_ident_for("manage", ty_ident);
     let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
-    let with_repo_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler_with_repo");
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -1771,22 +1657,10 @@ fn gen_child_indexed_singleton_handler(
     };
 
     quote! {
-        __emit_initialized_wrapper! {
-            pub async fn #handler_ident(
+        pub async fn #handler_ident(
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
-            #with_repo_ident(__repo, operation).await
-        }
-        }
-
-        pub async fn #with_repo_ident<__R>(
-            __repo: ::std::sync::Arc<__R>,
-            operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
-        ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError>
-        where
-            __R: #repo_name + ?Sized,
-        {
             use ::fractic_aws_apigateway::CrudOperation::*;
             match operation {
                 #list_arm
