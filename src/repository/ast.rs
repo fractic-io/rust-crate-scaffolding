@@ -10,6 +10,51 @@ mod kw {
     syn::custom_keyword!(input);
     syn::custom_keyword!(output);
     syn::custom_keyword!(deprecated);
+    syn::custom_keyword!(access);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AccessAst, ConfigAst};
+
+    #[test]
+    fn parses_access_class_independent_of_property_order() {
+        let ast: ConfigAst = syn::parse_str(
+            r#"
+            ExampleRepository;
+            function list_items {
+                access: read
+                input: None
+                output: Vec<String>
+            }
+            function delete_item {
+                input: { id: String }
+                output: None
+                access: destructive
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(ast.functions[0].access, AccessAst::Read);
+        assert_eq!(ast.functions[1].access, AccessAst::Destructive);
+    }
+
+    #[test]
+    fn defaults_unclassified_operations_to_internal_access() {
+        let ast: ConfigAst = syn::parse_str(
+            r#"
+            ExampleRepository;
+            function helper {
+                input: None
+                output: None
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(ast.functions[0].access, AccessAst::Internal);
+    }
 }
 
 #[derive(Debug)]
@@ -53,6 +98,15 @@ pub struct FunctionAst {
     pub output: ValueAst,
     pub kind: FunctionKindAst,
     pub deprecated: Option<DeprecatedAst>,
+    pub access: AccessAst,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccessAst {
+    Read,
+    Write,
+    Destructive,
+    Internal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +154,7 @@ impl Parse for FunctionAst {
         let mut input_val: Option<ValueAst> = None;
         let mut output_val: Option<ValueAst> = None;
         let mut deprecated_val: Option<DeprecatedAst> = None;
+        let mut access_val: Option<AccessAst> = None;
         while !content.is_empty() {
             // Check for accidental comma.
             if content.peek(Token![,]) {
@@ -117,7 +172,7 @@ impl Parse for FunctionAst {
                 let _colon: Token![:] = content.parse()?;
                 let value = parse_value_until_key_or_end(
                     &content,
-                    &[KeyStop::Output, KeyStop::Deprecated],
+                    &[KeyStop::Output, KeyStop::Deprecated, KeyStop::Access],
                 )?;
                 if input_val.is_some() {
                     return Err(Error::new(name.span(), "duplicate `input` property"));
@@ -127,7 +182,10 @@ impl Parse for FunctionAst {
                 // Parse: output: <value>
                 let _k: kw::output = content.parse()?;
                 let _colon: Token![:] = content.parse()?;
-                let value = parse_value_until_key_or_end(&content, &[KeyStop::Deprecated])?;
+                let value = parse_value_until_key_or_end(
+                    &content,
+                    &[KeyStop::Deprecated, KeyStop::Access],
+                )?;
                 if output_val.is_some() {
                     return Err(Error::new(name.span(), "duplicate `output` property"));
                 }
@@ -171,13 +229,32 @@ impl Parse for FunctionAst {
                     }
                     deprecated_val = Some(DeprecatedAst::Flag);
                 }
+            } else if content.peek(kw::access) {
+                let key: kw::access = content.parse()?;
+                let _colon: Token![:] = content.parse()?;
+                if access_val.is_some() {
+                    return Err(Error::new(key.span, "duplicate `access` property"));
+                }
+                let value: Ident = content.parse()?;
+                access_val = Some(match value.to_string().as_str() {
+                    "read" => AccessAst::Read,
+                    "write" => AccessAst::Write,
+                    "destructive" => AccessAst::Destructive,
+                    "internal" => AccessAst::Internal,
+                    _ => {
+                        return Err(Error::new(
+                            value.span(),
+                            "unknown access class; expected `read`, `write`, `destructive`, or `internal`",
+                        ));
+                    }
+                });
             } else {
                 // Unexpected token in function body.
                 let ahead: Ident = content.parse()?;
                 return Err(Error::new(
                     ahead.span(),
                     format!(
-                        "unknown key `{}`; expected `input`, `output`, or `deprecated`",
+                        "unknown key `{}`; expected `input`, `output`, `deprecated`, or `access`",
                         ahead
                     ),
                 ));
@@ -194,6 +271,7 @@ impl Parse for FunctionAst {
             output,
             kind,
             deprecated: deprecated_val,
+            access: access_val.unwrap_or(AccessAst::Internal),
         })
     }
 }
@@ -261,6 +339,7 @@ impl Parse for FieldAst {
 enum KeyStop {
     Output,
     Deprecated,
+    Access,
 }
 
 /// Parse a ValueAst until either the next key (currently only `output`) or end
@@ -358,6 +437,12 @@ fn read_tokens_until_next_key_or_end(
             }
             if stops.iter().any(|s| matches!(s, KeyStop::Deprecated))
                 && content.peek(kw::deprecated)
+            {
+                break;
+            }
+            if stops.iter().any(|s| matches!(s, KeyStop::Access))
+                && content.peek(kw::access)
+                && content.peek2(Token![:])
             {
                 break;
             }

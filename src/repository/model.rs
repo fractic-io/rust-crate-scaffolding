@@ -19,6 +19,15 @@ pub struct FunctionModel {
     pub is_direct: bool,
     pub is_deprecated: bool,
     pub deprecated_note: Option<LitStr>,
+    pub access: AccessClass,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccessClass {
+    Read,
+    Write,
+    Destructive,
+    Internal,
 }
 
 #[derive(Debug)]
@@ -95,6 +104,12 @@ fn build_function_model(
         is_direct,
         is_deprecated,
         deprecated_note,
+        access: match func.access {
+            ast::AccessAst::Read => AccessClass::Read,
+            ast::AccessAst::Write => AccessClass::Write,
+            ast::AccessAst::Destructive => AccessClass::Destructive,
+            ast::AccessAst::Internal => AccessClass::Internal,
+        },
     })
 }
 
