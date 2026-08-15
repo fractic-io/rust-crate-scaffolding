@@ -175,8 +175,7 @@ fn replace_inline_structs_in_tokens(
     helper_structs: &mut Vec<HelperStruct>,
 ) -> Result<TokenStream2> {
     let mut out = TokenStream2::new();
-    let mut iter = tokens.into_iter().peekable();
-    while let Some(tt) = iter.next() {
+    for tt in tokens {
         match tt {
             TokenTree::Group(g) if g.delimiter() == Delimiter::Brace => {
                 // This is an inline struct at this position.
