@@ -28,7 +28,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     quote! {
         pub mod #protocol_module_name {
             use super::*;
-            use ::fractic_repository_protocol as __protocol;
+            use ::fractic_crate_scaffolding::protocol as __protocol;
 
             super::#handlers_macro!(@protocol);
 

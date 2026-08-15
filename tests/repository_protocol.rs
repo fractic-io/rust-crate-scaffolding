@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use fractic_repository_protocol::{OperationClass, ValueShape};
+use fractic_crate_scaffolding::protocol::{OperationClass, ValueShape};
 use serde_json::json;
 
 mod fixture {
