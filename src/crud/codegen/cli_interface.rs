@@ -293,21 +293,69 @@ fn push_descriptor(
         "write" => quote! { __runtime::OperationClass::Write },
         _ => quote! { __runtime::OperationClass::Destructive },
     };
+    let output_descriptor = output_descriptor(operation, ty);
     output.push(quote! {
         __runtime::OperationDescriptor {
             name: #name,
             class: #class,
             deprecated: false,
             input: __runtime::ValueDescriptor {
+                shape: __runtime::ValueShape::Object,
                 rust_type: concat!("CrudOperation<", stringify!(#ty), ">"),
                 fields: #fields,
-                accepts_none: false,
             },
-            output: __runtime::ValueDescriptor {
-                rust_type: stringify!(#ty), fields: &[], accepts_none: false,
-            },
+            output: #output_descriptor,
         }
     });
+}
+
+fn output_descriptor(operation: &str, ty: &Ident) -> TokenStream {
+    match operation {
+        "list" | "read-multiple" => quote! {
+            __runtime::ValueDescriptor {
+                shape: __runtime::ValueShape::Direct,
+                rust_type: concat!("Vec<", stringify!(#ty), ">"),
+                fields: &[],
+            }
+        },
+        "read" => quote! {
+            __runtime::ValueDescriptor {
+                shape: __runtime::ValueShape::Direct,
+                rust_type: stringify!(#ty),
+                fields: &[],
+            }
+        },
+        "create" => quote! {
+            __runtime::ValueDescriptor {
+                shape: __runtime::ValueShape::Object,
+                rust_type: "object",
+                fields: &[__runtime::FieldDescriptor {
+                    name: "created_id",
+                    rust_type: "PkSk",
+                    required: true,
+                }],
+            }
+        },
+        "create-multiple" => quote! {
+            __runtime::ValueDescriptor {
+                shape: __runtime::ValueShape::Object,
+                rust_type: "object",
+                fields: &[__runtime::FieldDescriptor {
+                    name: "created_ids",
+                    rust_type: "Vec<PkSk>",
+                    required: true,
+                }],
+            }
+        },
+        "update" | "delete" | "delete-multiple" | "delete-all" | "replace-all" => quote! {
+            __runtime::ValueDescriptor {
+                shape: __runtime::ValueShape::None,
+                rust_type: "()",
+                fields: &[],
+            }
+        },
+        _ => unreachable!("unsupported CRUD operation descriptor: {operation}"),
+    }
 }
 
 fn dispatch_arms(model: &ConfigModel) -> Vec<TokenStream> {

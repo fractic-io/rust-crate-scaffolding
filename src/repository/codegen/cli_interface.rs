@@ -82,18 +82,18 @@ fn operation_descriptor(function: &crate::repository::model::FunctionModel) -> T
 fn value_descriptor(value: &ValueModel, input: bool) -> TokenStream {
     match value {
         ValueModel::None => quote! {
-            __runtime::ValueDescriptor { rust_type: "()", fields: &[], accepts_none: true }
+            __runtime::ValueDescriptor {
+                shape: __runtime::ValueShape::None,
+                rust_type: "()",
+                fields: &[],
+            }
         },
         ValueModel::SingleType { ty_tokens } => {
             quote! {
                 __runtime::ValueDescriptor {
+                    shape: __runtime::ValueShape::Direct,
                     rust_type: stringify!(#ty_tokens),
-                    fields: &[__runtime::FieldDescriptor {
-                        name: if #input { "input" } else { "value" },
-                        rust_type: stringify!(#ty_tokens),
-                        required: true,
-                    }],
-                    accepts_none: false,
+                    fields: &[],
                 }
             }
         }
@@ -112,9 +112,9 @@ fn value_descriptor(value: &ValueModel, input: bool) -> TokenStream {
             });
             quote! {
                 __runtime::ValueDescriptor {
+                    shape: __runtime::ValueShape::Object,
                     rust_type: "object",
                     fields: &[#(#field_descriptors),*],
-                    accepts_none: false,
                 }
             }
         }
