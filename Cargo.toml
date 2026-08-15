@@ -7,6 +7,9 @@ edition = "2024"
 [lib]
 proc-macro = true
 
+[workspace]
+members = ["protocol"]
+
 [dependencies]
 convert_case = "^0.11.0"
 fractic-server-error = { git = "https://github.com/fractic-io/rust-server-error.git" }
@@ -14,3 +17,10 @@ futures-util = "^0.3.31"
 proc-macro2 = "^1.0.103"
 quote = "^1.0.42"
 syn = { version = "^2.0.110", features = ["extra-traits"] }
+
+[dev-dependencies]
+async-trait = "^0.1.68"
+fractic-repository-protocol = { path = "protocol" }
+serde = { version = "^1.0.203", features = ["derive"] }
+serde_json = "^1.0.117"
+tokio = { version = "^1", features = ["macros", "rt"] }

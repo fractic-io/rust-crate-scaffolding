@@ -53,3 +53,30 @@ pub fn to_pascal_case(input: &str) -> String {
     }
     out
 }
+
+/// Stable kebab-case protocol name derived from a generated repository trait.
+pub fn repository_protocol_name(repository_name: &str) -> String {
+    let base = repository_name
+        .strip_suffix("AccessRepository")
+        .or_else(|| repository_name.strip_suffix("Repository"))
+        .unwrap_or(repository_name);
+    to_snake_case(base).replace('_', "-")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repository_protocol_name;
+
+    #[test]
+    fn protocol_names_remove_repository_role_suffixes() {
+        assert_eq!(
+            repository_protocol_name("RoutesPrimaryAccessRepository"),
+            "routes-primary"
+        );
+        assert_eq!(
+            repository_protocol_name("ControlCrudRepository"),
+            "control-crud"
+        );
+        assert_eq!(repository_protocol_name("FormsRepository"), "forms");
+    }
+}

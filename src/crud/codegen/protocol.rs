@@ -3,16 +3,17 @@ use quote::{format_ident, quote};
 
 use crate::{
     crud::model::{ConfigModel, IndexedSingletonDef, StandardDef},
-    helpers::to_snake_case,
+    helpers::{repository_protocol_name, to_snake_case},
 };
+
+// Public interface.
+// ----------------------------------------------------------------------------
 
 pub fn generate(model: &ConfigModel) -> TokenStream {
     let repo_name = &model.repository_name;
     let repo_name_snake = to_snake_case(&repo_name.to_string());
-    let interface_macro_name = Ident::new(
-        &format!("generate_{}_cli_interface", repo_name_snake),
-        repo_name.span(),
-    );
+    let protocol_module_name =
+        Ident::new(&format!("{}_protocol", repo_name_snake), repo_name.span());
     let handlers_macro = Ident::new(
         &format!(
             "generate_{}_handlers",
@@ -20,47 +21,46 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         ),
         repo_name.span(),
     );
+    let repository_name = repository_protocol_name(&repo_name.to_string());
     let descriptors = descriptors(model);
     let dispatch_arms = dispatch_arms(model);
 
     quote! {
-        #[allow(unused_macros)]
-        #[macro_export]
-        macro_rules! #interface_macro_name {
-            ($module:ident, $repository_name:literal, $runtime:path, $($repo_init:tt)+) => {
-                pub mod $module {
-                    use super::*;
-                    use $runtime as __runtime;
+        pub mod #protocol_module_name {
+            use super::*;
+            use ::fractic_repository_protocol as __protocol;
 
-                    $crate::#handlers_macro!($($repo_init)+);
+            super::#handlers_macro!(@protocol);
 
-                    pub static DESCRIPTOR: __runtime::RepositoryDescriptor =
-                        __runtime::RepositoryDescriptor {
-                            name: $repository_name,
-                            repository_type: stringify!(#repo_name),
-                            operations: &[#(#descriptors),*],
-                        };
+            pub static DESCRIPTOR: __protocol::RepositoryDescriptor =
+                __protocol::RepositoryDescriptor {
+                    name: #repository_name,
+                    repository_type: stringify!(#repo_name),
+                    operations: &[#(#descriptors),*],
+                };
 
-                    pub async fn call(
-                        operation: &str,
-                        input: ::serde_json::Value,
-                    ) -> ::std::result::Result<::serde_json::Value, __runtime::CliError> {
-                        match operation {
-                            #(#dispatch_arms),*,
-                            _ => Err(__runtime::CliError::unknown_operation(
-                                $repository_name,
-                                operation,
-                            )),
-                        }
-                    }
+            pub async fn dispatch(
+                repository: ::std::sync::Arc<dyn #repo_name>,
+                operation: &str,
+                input: ::serde_json::Value,
+            ) -> ::std::result::Result<
+                ::serde_json::Value,
+                ::fractic_server_error::ServerError,
+            > {
+                match operation {
+                    #(#dispatch_arms),*,
+                    _ => Err(__protocol::unknown_operation(
+                        DESCRIPTOR.name,
+                        operation,
+                    )),
                 }
-            };
+            }
         }
-
-        #[allow(unused_imports)]
-        pub(crate) use #interface_macro_name;
     }
 }
+
+// Helpers: Descriptors.
+// ----------------------------------------------------------------------------
 
 fn descriptors(model: &ConfigModel) -> Vec<TokenStream> {
     let mut output = Vec::new();
@@ -289,18 +289,18 @@ fn push_descriptor(
 ) {
     let name = format!("{object}.{operation}");
     let class = match class {
-        "read" => quote! { __runtime::OperationClass::Read },
-        "write" => quote! { __runtime::OperationClass::Write },
-        _ => quote! { __runtime::OperationClass::Destructive },
+        "read" => quote! { __protocol::OperationClass::Read },
+        "write" => quote! { __protocol::OperationClass::Write },
+        _ => quote! { __protocol::OperationClass::Destructive },
     };
     let output_descriptor = output_descriptor(operation, ty);
     output.push(quote! {
-        __runtime::OperationDescriptor {
+        __protocol::OperationDescriptor {
             name: #name,
             class: #class,
             deprecated: false,
-            input: __runtime::ValueDescriptor {
-                shape: __runtime::ValueShape::Object,
+            input: __protocol::ValueDescriptor {
+                shape: __protocol::ValueShape::Object,
                 rust_type: concat!("CrudOperation<", stringify!(#ty), ">"),
                 fields: #fields,
             },
@@ -312,24 +312,24 @@ fn push_descriptor(
 fn output_descriptor(operation: &str, ty: &Ident) -> TokenStream {
     match operation {
         "list" | "read-multiple" => quote! {
-            __runtime::ValueDescriptor {
-                shape: __runtime::ValueShape::Direct,
+            __protocol::ValueDescriptor {
+                shape: __protocol::ValueShape::Direct,
                 rust_type: concat!("Vec<", stringify!(#ty), ">"),
                 fields: &[],
             }
         },
         "read" => quote! {
-            __runtime::ValueDescriptor {
-                shape: __runtime::ValueShape::Direct,
+            __protocol::ValueDescriptor {
+                shape: __protocol::ValueShape::Direct,
                 rust_type: stringify!(#ty),
                 fields: &[],
             }
         },
         "create" => quote! {
-            __runtime::ValueDescriptor {
-                shape: __runtime::ValueShape::Object,
+            __protocol::ValueDescriptor {
+                shape: __protocol::ValueShape::Object,
                 rust_type: "object",
-                fields: &[__runtime::FieldDescriptor {
+                fields: &[__protocol::FieldDescriptor {
                     name: "created_id",
                     rust_type: "PkSk",
                     required: true,
@@ -337,10 +337,10 @@ fn output_descriptor(operation: &str, ty: &Ident) -> TokenStream {
             }
         },
         "create-multiple" => quote! {
-            __runtime::ValueDescriptor {
-                shape: __runtime::ValueShape::Object,
+            __protocol::ValueDescriptor {
+                shape: __protocol::ValueShape::Object,
                 rust_type: "object",
-                fields: &[__runtime::FieldDescriptor {
+                fields: &[__protocol::FieldDescriptor {
                     name: "created_ids",
                     rust_type: "Vec<PkSk>",
                     required: true,
@@ -348,8 +348,8 @@ fn output_descriptor(operation: &str, ty: &Ident) -> TokenStream {
             }
         },
         "update" | "delete" | "delete-multiple" | "delete-all" | "replace-all" => quote! {
-            __runtime::ValueDescriptor {
-                shape: __runtime::ValueShape::None,
+            __protocol::ValueDescriptor {
+                shape: __protocol::ValueShape::None,
                 rust_type: "()",
                 fields: &[],
             }
@@ -357,6 +357,9 @@ fn output_descriptor(operation: &str, ty: &Ident) -> TokenStream {
         _ => unreachable!("unsupported CRUD operation descriptor: {operation}"),
     }
 }
+
+// Helpers: Dispatch.
+// ----------------------------------------------------------------------------
 
 fn dispatch_arms(model: &ConfigModel) -> Vec<TokenStream> {
     let mut output = Vec::new();
@@ -408,15 +411,19 @@ fn dispatch_arms(model: &ConfigModel) -> Vec<TokenStream> {
 
 fn operation_dispatches(output: &mut Vec<TokenStream>, ty: &Ident, operations: &[&str]) {
     let object = object_name(ty);
-    let handler = format_ident!("manage_{}_handler", to_snake_case(&ty.to_string()));
+    let handler = format_ident!("manage_{}_protocol_handler", to_snake_case(&ty.to_string()));
     for operation in operations {
         let name = format!("{object}.{operation}");
         output.push(quote! {
             #name => {
                 let __operation: ::fractic_aws_apigateway::CrudOperation<#ty> =
-                    __runtime::decode_crud_input(input, #operation)?;
-                let __result = #handler(__operation).await?;
-                __runtime::encode_output(__result)
+                    __protocol::decode_tagged_input(
+                        input,
+                        "operation",
+                        &#operation.replace('-', "_"),
+                    )?;
+                let __result = #handler(repository.clone(), __operation).await?;
+                __protocol::encode_output(__result)
             }
         });
     }
@@ -427,7 +434,7 @@ fn object_name(ident: &Ident) -> String {
 }
 
 fn field(name: &str, ty: &str, required: bool) -> TokenStream {
-    quote! { __runtime::FieldDescriptor { name: #name, rust_type: #ty, required: #required } }
+    quote! { __protocol::FieldDescriptor { name: #name, rust_type: #ty, required: #required } }
 }
 
 fn fields_list(has_parent: bool) -> TokenStream {
