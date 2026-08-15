@@ -13,67 +13,6 @@ mod kw {
     syn::custom_keyword!(class);
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{ClassAst, ConfigAst};
-
-    #[test]
-    fn parses_class_independent_of_property_order() {
-        let ast: ConfigAst = syn::parse_str(
-            r#"
-            ExampleRepository;
-            function list_items {
-                class: read
-                input: None
-                output: Vec<String>
-            }
-            function delete_item {
-                input: { id: String }
-                output: None
-                class: destructive
-            }
-            "#,
-        )
-        .unwrap();
-
-        assert_eq!(ast.functions[0].class, ClassAst::Read);
-        assert_eq!(ast.functions[1].class, ClassAst::Destructive);
-    }
-
-    #[test]
-    fn defaults_unclassified_operations_to_internal() {
-        let ast: ConfigAst = syn::parse_str(
-            r#"
-            ExampleRepository;
-            function helper {
-                input: None
-                output: None
-            }
-            "#,
-        )
-        .unwrap();
-
-        assert_eq!(ast.functions[0].class, ClassAst::Internal);
-    }
-
-    #[test]
-    fn rejects_unknown_classes() {
-        let error = syn::parse_str::<ConfigAst>(
-            r#"
-            ExampleRepository;
-            function helper {
-                input: None
-                output: None
-                class: public
-            }
-            "#,
-        )
-        .unwrap_err();
-
-        assert!(error.to_string().contains("unknown operation class"));
-    }
-}
-
 #[derive(Debug)]
 pub struct ConfigAst {
     pub repository_name: Ident,
@@ -259,7 +198,8 @@ impl Parse for FunctionAst {
                     _ => {
                         return Err(Error::new(
                             value.span(),
-                            "unknown operation class; expected `read`, `write`, `destructive`, or `internal`",
+                            "unknown operation class; expected `read`, `write`, `destructive`, or \
+                             `internal`",
                         ));
                     }
                 });
@@ -495,5 +435,69 @@ fn parse_next_group(input: ParseStream<'_>) -> Result<Group> {
             proc_macro2::Span::call_site(),
             "expected a group",
         ))
+    }
+}
+
+// Tests.
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::{ClassAst, ConfigAst};
+
+    #[test]
+    fn parses_class_independent_of_property_order() {
+        let ast: ConfigAst = syn::parse_str(
+            r#"
+            ExampleRepository;
+            function list_items {
+                class: read
+                input: None
+                output: Vec<String>
+            }
+            function delete_item {
+                input: { id: String }
+                output: None
+                class: destructive
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(ast.functions[0].class, ClassAst::Read);
+        assert_eq!(ast.functions[1].class, ClassAst::Destructive);
+    }
+
+    #[test]
+    fn defaults_unclassified_operations_to_internal() {
+        let ast: ConfigAst = syn::parse_str(
+            r#"
+            ExampleRepository;
+            function helper {
+                input: None
+                output: None
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(ast.functions[0].class, ClassAst::Internal);
+    }
+
+    #[test]
+    fn rejects_unknown_classes() {
+        let error = syn::parse_str::<ConfigAst>(
+            r#"
+            ExampleRepository;
+            function helper {
+                input: None
+                output: None
+                class: public
+            }
+            "#,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unknown operation class"));
     }
 }
