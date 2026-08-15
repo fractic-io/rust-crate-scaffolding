@@ -4,6 +4,21 @@ use fractic_server_error::{ServerError, define_internal_error, define_user_error
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
+define_user_error!(
+    InvalidRepositoryInput,
+    "Invalid repository input: {details}.",
+    { details: &str }
+);
+define_user_error!(
+    UnknownRepositoryOperation,
+    "Repository `{repository}` has no operation `{operation}`.",
+    { repository: &str, operation: &str }
+);
+define_internal_error!(
+    RepositoryOutputSerializationFailure,
+    "Failed to serialize a repository operation result."
+);
+
 // Definitions.
 // ----------------------------------------------------------------------------
 
@@ -59,21 +74,6 @@ pub struct RepositoryDescriptor {
     pub repository_type: &'static str,
     pub operations: &'static [OperationDescriptor],
 }
-
-define_user_error!(
-    InvalidRepositoryInput,
-    "Invalid repository input: {details}.",
-    { details: &str }
-);
-define_user_error!(
-    UnknownRepositoryOperation,
-    "Repository `{repository}` has no operation `{operation}`.",
-    { repository: &str, operation: &str }
-);
-define_internal_error!(
-    RepositoryOutputSerializationFailure,
-    "Failed to serialize a repository operation result."
-);
 
 // Public interface.
 // ----------------------------------------------------------------------------
