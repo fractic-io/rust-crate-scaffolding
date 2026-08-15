@@ -1,5 +1,5 @@
 [package]
-name = "fractic-repository-protocol"
+name = "fractic-repository-contract"
 version = "0.1.0"
 authors = ["Mart van Buren <mart@fractic.io>"]
 edition = "2024"

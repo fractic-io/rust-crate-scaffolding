@@ -3,7 +3,7 @@
 This crate provides a structured way to describe a repository so that its
 boilerplate can be derived from one source of truth. A definition becomes a
 repository trait plus adapters such as `fractic-aws-apigateway` handlers and a
-machine-readable repository protocol. The point is that every way of calling a
+machine-readable repository contract. The point is that every way of calling a
 repository shares the same operations, types, and behavior instead of
 reimplementing them by hand.
 
@@ -17,18 +17,18 @@ There are two kinds of definition:
 The non-obvious parts:
 
 - The public `fractic-crate-scaffolding` crate is a facade. It re-exports the
-  procedural macros and the protocol API, so consumers need only this one
-  dependency. Its internal packages live under `macros` and `protocol`.
+  procedural macros and the contract API, so consumers need only this one
+  dependency. Its internal packages live under `macros` and `contract`.
 - The macro implementations are separate pipelines under
   `macros/src/repository` and `macros/src/crud`. Features exposed by both, such
-  as handlers or protocol dispatch, usually need changes in both.
-- Each repository directly exposes a generated `<repository>_protocol` module
+  as handlers or contract dispatch, usually need changes in both.
+- Each repository directly exposes a generated `<repository>_contract` module
   containing a static descriptor and serialized dispatch function. Dispatch
   accepts an `Arc<dyn Repository>`, so callers can provide a local, test, or
   network-backed implementation without another generated macro invocation.
-- Protocol descriptors and codecs are implemented by the internal
-  `fractic-repository-protocol` library and exposed as
-  `fractic_crate_scaffolding::protocol`. Generated dispatch returns the same
+- Contract descriptors and codecs are implemented by the internal
+  `fractic-repository-contract` library and exposed as
+  `fractic_crate_scaffolding::contract`. Generated dispatch returns the same
   `ServerError` used by repository traits.
 - An arbitrary operation's `class` (`read`, `write`, `destructive`, or
   `internal`) is explicit policy metadata. Missing `class` means `internal`; it

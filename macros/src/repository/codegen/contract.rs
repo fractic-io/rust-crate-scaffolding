@@ -3,7 +3,7 @@ use quote::{ToTokens as _, format_ident, quote};
 use syn::Type;
 
 use crate::{
-    helpers::{repository_protocol_name, to_pascal_case, to_snake_case},
+    helpers::{repository_contract_name, to_pascal_case, to_snake_case},
     repository::model::{ConfigModel, FieldSpec, OperationClass, ValueModel},
 };
 
@@ -13,19 +13,19 @@ use crate::{
 pub fn generate(model: &ConfigModel) -> TokenStream {
     let repo_name = &model.repository_name;
     let repo_name_snake = to_snake_case(&repo_name.to_string());
-    let protocol_module_name =
-        Ident::new(&format!("{}_protocol", repo_name_snake), repo_name.span());
-    let repository_name = repository_protocol_name(&repo_name.to_string());
+    let contract_module_name =
+        Ident::new(&format!("{}_contract", repo_name_snake), repo_name.span());
+    let repository_name = repository_contract_name(&repo_name.to_string());
     let descriptors = model.functions.iter().map(operation_descriptor);
     let dispatch_arms = model.functions.iter().map(dispatch_arm);
 
     quote! {
-        pub mod #protocol_module_name {
+        pub mod #contract_module_name {
             use super::*;
-            use ::fractic_crate_scaffolding::protocol as __protocol;
+            use ::fractic_crate_scaffolding::contract as __contract;
 
-            pub static DESCRIPTOR: __protocol::RepositoryDescriptor =
-                __protocol::RepositoryDescriptor {
+            pub static DESCRIPTOR: __contract::RepositoryDescriptor =
+                __contract::RepositoryDescriptor {
                     name: #repository_name,
                     repository_type: stringify!(#repo_name),
                     operations: &[#(#descriptors),*],
@@ -41,7 +41,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             > {
                 match operation {
                     #(#dispatch_arms),*,
-                    _ => Err(__protocol::unknown_operation(
+                    _ => Err(__contract::unknown_operation(
                         DESCRIPTOR.name,
                         operation,
                     )),
@@ -62,7 +62,7 @@ fn operation_descriptor(function: &crate::repository::model::FunctionModel) -> T
     let output = value_descriptor(&function.output, false);
 
     quote! {
-        __protocol::OperationDescriptor {
+        __contract::OperationDescriptor {
             name: #name,
             class: #class,
             deprecated: #deprecated,
@@ -75,16 +75,16 @@ fn operation_descriptor(function: &crate::repository::model::FunctionModel) -> T
 fn value_descriptor(value: &ValueModel, input: bool) -> TokenStream {
     match value {
         ValueModel::None => quote! {
-            __protocol::ValueDescriptor {
-                shape: __protocol::ValueShape::None,
+            __contract::ValueDescriptor {
+                shape: __contract::ValueShape::None,
                 rust_type: "()",
                 fields: &[],
             }
         },
         ValueModel::SingleType { ty_tokens } => {
             quote! {
-                __protocol::ValueDescriptor {
-                    shape: __protocol::ValueShape::Direct,
+                __contract::ValueDescriptor {
+                    shape: __contract::ValueShape::Direct,
                     rust_type: stringify!(#ty_tokens),
                     fields: &[],
                 }
@@ -96,7 +96,7 @@ fn value_descriptor(value: &ValueModel, input: bool) -> TokenStream {
                 let ty = &field.ty_tokens;
                 let required = field_required(field, input);
                 quote! {
-                    __protocol::FieldDescriptor {
+                    __contract::FieldDescriptor {
                         name: #name,
                         rust_type: stringify!(#ty),
                         required: #required,
@@ -104,8 +104,8 @@ fn value_descriptor(value: &ValueModel, input: bool) -> TokenStream {
                 }
             });
             quote! {
-                __protocol::ValueDescriptor {
-                    shape: __protocol::ValueShape::Object,
+                __contract::ValueDescriptor {
+                    shape: __contract::ValueShape::Object,
                     rust_type: "object",
                     fields: &[#(#field_descriptors),*],
                 }
@@ -172,20 +172,20 @@ fn dispatch_arm(function: &crate::repository::model::FunctionModel) -> TokenStre
             #decode
             #resolve
             #wrap
-            __protocol::encode_output(__result)
+            __contract::encode_output(__result)
         }
     }
 }
 
 fn dispatch_input(value: &ValueModel, input_ident: &Ident) -> (TokenStream, TokenStream) {
     match value {
-        ValueModel::None => (quote! { __protocol::require_no_input(&input)?; }, quote! {}),
+        ValueModel::None => (quote! { __contract::require_no_input(&input)?; }, quote! {}),
         ValueModel::SingleType { ty_tokens } => (
-            quote! { let __input: #ty_tokens = __protocol::decode_input(input)?; },
+            quote! { let __input: #ty_tokens = __contract::decode_input(input)?; },
             quote! { __input },
         ),
         ValueModel::Struct { .. } => (
-            quote! { let __input: #input_ident = __protocol::decode_input(input)?; },
+            quote! { let __input: #input_ident = __contract::decode_input(input)?; },
             dispatch_struct_arguments(value),
         ),
     }
@@ -224,9 +224,9 @@ fn argument_reference_mode(tokens: TokenStream) -> ReferenceMode {
 
 fn class_tokens(class: OperationClass) -> TokenStream {
     match class {
-        OperationClass::Read => quote! { __protocol::OperationClass::Read },
-        OperationClass::Write => quote! { __protocol::OperationClass::Write },
-        OperationClass::Destructive => quote! { __protocol::OperationClass::Destructive },
-        OperationClass::Internal => quote! { __protocol::OperationClass::Internal },
+        OperationClass::Read => quote! { __contract::OperationClass::Read },
+        OperationClass::Write => quote! { __contract::OperationClass::Write },
+        OperationClass::Destructive => quote! { __contract::OperationClass::Destructive },
+        OperationClass::Internal => quote! { __contract::OperationClass::Internal },
     }
 }

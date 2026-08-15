@@ -5,11 +5,11 @@ authors = ["Mart van Buren <mart@fractic.io>"]
 edition = "2024"
 
 [workspace]
-members = ["macros", "protocol"]
+members = ["macros", "contract"]
 
 [dependencies]
 fractic-crate-scaffolding-macros = { version = "0.1.0", path = "macros" }
-fractic-repository-protocol = { version = "0.1.0", path = "protocol" }
+fractic-repository-contract = { version = "0.1.0", path = "contract" }
 
 [dev-dependencies]
 async-trait = "^0.1.68"

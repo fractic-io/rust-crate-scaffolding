@@ -1,3 +1,5 @@
+//! Shared descriptors and serialization helpers for generated repository contracts.
+
 use fractic_server_error::{ServerError, define_internal_error, define_user_error};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
@@ -111,7 +113,7 @@ pub fn require_no_input(value: &Value) -> Result<(), ServerError> {
     }
 }
 
-/// Encodes a typed repository operation result for protocol consumers.
+/// Encodes a typed repository operation result for contract consumers.
 pub fn encode_output<T: Serialize>(value: T) -> Result<Value, ServerError> {
     serde_json::to_value(value)
         .map_err(|error| RepositoryOutputSerializationFailure::with_debug(&error))

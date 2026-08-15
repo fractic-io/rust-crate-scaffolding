@@ -4,8 +4,8 @@ use quote::quote;
 mod ast;
 mod codegen {
     pub mod annotations;
+    pub mod contract;
     pub mod handlers;
-    pub mod protocol;
     pub mod repository;
     pub mod repository_impl;
 }
@@ -19,12 +19,12 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     let repository_impl_macro = codegen::repository_impl::generate(model);
     let annotations_macro = codegen::annotations::generate(model);
     let handlers_macro = codegen::handlers::generate(model);
-    let protocol = codegen::protocol::generate(model);
+    let contract = codegen::contract::generate(model);
     quote! {
         #repository_trait
         #repository_impl_macro
         #annotations_macro
         #handlers_macro
-        #protocol
+        #contract
     }
 }

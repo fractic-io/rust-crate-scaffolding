@@ -54,8 +54,8 @@ pub fn to_pascal_case(input: &str) -> String {
     out
 }
 
-/// Stable kebab-case protocol name derived from a generated repository trait.
-pub fn repository_protocol_name(repository_name: &str) -> String {
+/// Stable kebab-case contract name derived from a generated repository trait.
+pub fn repository_contract_name(repository_name: &str) -> String {
     let base = repository_name
         .strip_suffix("AccessRepository")
         .or_else(|| repository_name.strip_suffix("Repository"))
@@ -65,18 +65,18 @@ pub fn repository_protocol_name(repository_name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::repository_protocol_name;
+    use super::repository_contract_name;
 
     #[test]
-    fn protocol_names_remove_repository_role_suffixes() {
+    fn contract_names_remove_repository_role_suffixes() {
         assert_eq!(
-            repository_protocol_name("RoutesPrimaryAccessRepository"),
+            repository_contract_name("RoutesPrimaryAccessRepository"),
             "routes-primary"
         );
         assert_eq!(
-            repository_protocol_name("ControlCrudRepository"),
+            repository_contract_name("ControlCrudRepository"),
             "control-crud"
         );
-        assert_eq!(repository_protocol_name("FormsRepository"), "forms");
+        assert_eq!(repository_contract_name("FormsRepository"), "forms");
     }
 }

@@ -52,18 +52,18 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
     };
 
     let (root_handlers, child_handlers) = build_handlers(model, repo_name, false);
-    let (root_protocol_handlers, child_protocol_handlers) = build_handlers(model, repo_name, true);
+    let (root_contract_handlers, child_contract_handlers) = build_handlers(model, repo_name, true);
 
     // Compose generation macro.
     quote! {
         #[allow(unused_macros)]
         #[macro_export]
         macro_rules! #macro_name_ident {
-            (@protocol) => {
+            (@contract) => {
                 #placeholder_item_macro
                 #crud_result_enum
-                #(#root_protocol_handlers)*
-                #(#child_protocol_handlers)*
+                #(#root_contract_handlers)*
+                #(#child_contract_handlers)*
             };
             ($($repo_init:tt)+) => {
                 macro_rules! __repo_init { () => { { $($repo_init)+ } } }
@@ -83,33 +83,33 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
 fn build_handlers(
     model: &ConfigModel,
     repo_name: &Ident,
-    protocol: bool,
+    contract: bool,
 ) -> (Vec<TokenStream>, Vec<TokenStream>) {
     let root_handlers = model
         .ordered_objects
         .iter()
         .filter(|root| root.parents.is_none())
-        .map(|root| gen_root_standard_handler(root, true, repo_name, protocol))
+        .map(|root| gen_root_standard_handler(root, true, repo_name, contract))
         .chain(
             model
                 .unordered_objects
                 .iter()
                 .filter(|root| root.parents.is_none())
-                .map(|root| gen_root_standard_handler(root, false, repo_name, protocol)),
+                .map(|root| gen_root_standard_handler(root, false, repo_name, contract)),
         )
         .chain(
             model
                 .batch_objects
                 .iter()
                 .filter(|batch| batch.parents.is_none())
-                .map(|batch| gen_root_batch_handler(batch, repo_name, protocol)),
+                .map(|batch| gen_root_batch_handler(batch, repo_name, contract)),
         )
         .chain(
             model
                 .singleton_objects
                 .iter()
                 .filter(|singleton| singleton.parents.is_none())
-                .map(|singleton| gen_root_singleton_handler(singleton, repo_name, protocol)),
+                .map(|singleton| gen_root_singleton_handler(singleton, repo_name, contract)),
         )
         .chain(
             model
@@ -117,7 +117,7 @@ fn build_handlers(
                 .iter()
                 .filter(|indexed_singleton| indexed_singleton.parents.is_none())
                 .map(|indexed_singleton| {
-                    gen_root_indexed_singleton_handler(indexed_singleton, repo_name, protocol)
+                    gen_root_indexed_singleton_handler(indexed_singleton, repo_name, contract)
                 }),
         )
         .collect::<Vec<_>>();
@@ -127,27 +127,27 @@ fn build_handlers(
         .ordered_objects
         .iter()
         .filter(|child| child.parents.is_some())
-        .map(|child| gen_child_standard_handler(child, true, repo_name, protocol))
+        .map(|child| gen_child_standard_handler(child, true, repo_name, contract))
         .chain(
             model
                 .unordered_objects
                 .iter()
                 .filter(|child| child.parents.is_some())
-                .map(|child| gen_child_standard_handler(child, false, repo_name, protocol)),
+                .map(|child| gen_child_standard_handler(child, false, repo_name, contract)),
         )
         .chain(
             model
                 .batch_objects
                 .iter()
                 .filter(|batch| batch.parents.is_some())
-                .map(|batch| gen_child_batch_handler(batch, repo_name, protocol)),
+                .map(|batch| gen_child_batch_handler(batch, repo_name, contract)),
         )
         .chain(
             model
                 .singleton_objects
                 .iter()
                 .filter(|singleton| singleton.parents.is_some())
-                .map(|singleton| gen_child_singleton_handler(singleton, repo_name, protocol)),
+                .map(|singleton| gen_child_singleton_handler(singleton, repo_name, contract)),
         )
         .chain(
             model
@@ -155,7 +155,7 @@ fn build_handlers(
                 .iter()
                 .filter(|indexed_singleton| indexed_singleton.parents.is_some())
                 .map(|indexed_singleton| {
-                    gen_child_indexed_singleton_handler(indexed_singleton, repo_name, protocol)
+                    gen_child_indexed_singleton_handler(indexed_singleton, repo_name, contract)
                 }),
         )
         .collect::<Vec<_>>();
@@ -167,12 +167,12 @@ fn gen_root_standard_handler(
     root: &StandardDef,
     is_ordered: bool,
     repo_name: &Ident,
-    protocol: bool,
+    contract: bool,
 ) -> TokenStream {
     let ty_ident = &root.name;
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = handler_ident(ty_ident, protocol);
-    let (repository_parameter, repository_init) = repository_binding(repo_name, protocol);
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
     let has_children = root.has_children();
 
     let list_arm = quote! {
@@ -463,11 +463,11 @@ fn gen_root_standard_handler(
     }
 }
 
-fn gen_root_batch_handler(batch: &BatchDef, repo_name: &Ident, protocol: bool) -> TokenStream {
+fn gen_root_batch_handler(batch: &BatchDef, repo_name: &Ident, contract: bool) -> TokenStream {
     let ty_ident = &batch.name;
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = handler_ident(ty_ident, protocol);
-    let (repository_parameter, repository_init) = repository_binding(repo_name, protocol);
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -544,12 +544,12 @@ fn gen_root_batch_handler(batch: &BatchDef, repo_name: &Ident, protocol: bool) -
 fn gen_root_singleton_handler(
     singleton: &SingletonDef,
     repo_name: &Ident,
-    protocol: bool,
+    contract: bool,
 ) -> TokenStream {
     let ty_ident = &singleton.name;
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = handler_ident(ty_ident, protocol);
-    let (repository_parameter, repository_init) = repository_binding(repo_name, protocol);
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
 
     let read_arm = quote! {
         Read { item_ref } => {
@@ -671,12 +671,12 @@ fn gen_root_singleton_handler(
 fn gen_root_indexed_singleton_handler(
     indexed_singleton: &IndexedSingletonDef,
     repo_name: &Ident,
-    protocol: bool,
+    contract: bool,
 ) -> TokenStream {
     let ty_ident = &indexed_singleton.name;
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = handler_ident(ty_ident, protocol);
-    let (repository_parameter, repository_init) = repository_binding(repo_name, protocol);
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -916,7 +916,7 @@ fn gen_child_standard_handler(
     child: &StandardDef,
     is_ordered: bool,
     repo_name: &Ident,
-    protocol: bool,
+    contract: bool,
 ) -> TokenStream {
     let ty_ident = &child.name;
     let parent_ident = {
@@ -929,8 +929,8 @@ fn gen_child_standard_handler(
         &parents[0]
     };
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = handler_ident(ty_ident, protocol);
-    let (repository_parameter, repository_init) = repository_binding(repo_name, protocol);
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
     let has_children = child.has_children();
 
     let list_arm = quote! {
@@ -1228,7 +1228,7 @@ fn gen_child_standard_handler(
     }
 }
 
-fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident, protocol: bool) -> TokenStream {
+fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident, contract: bool) -> TokenStream {
     let ty_ident = &batch.name;
     let parent_ident = {
         // These idents are used only to create placeholder objects, so we can
@@ -1240,8 +1240,8 @@ fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident, protocol: bool) 
         &parents[0]
     };
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = handler_ident(ty_ident, protocol);
-    let (repository_parameter, repository_init) = repository_binding(repo_name, protocol);
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -1321,7 +1321,7 @@ fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident, protocol: bool) 
 fn gen_child_singleton_handler(
     singleton: &SingletonDef,
     repo_name: &Ident,
-    protocol: bool,
+    contract: bool,
 ) -> TokenStream {
     let ty_ident = &singleton.name;
     let parent_ident = {
@@ -1332,8 +1332,8 @@ fn gen_child_singleton_handler(
         &parents[0]
     };
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = handler_ident(ty_ident, protocol);
-    let (repository_parameter, repository_init) = repository_binding(repo_name, protocol);
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
 
     let read_arm = quote! {
         Read { item_ref } => {
@@ -1458,7 +1458,7 @@ fn gen_child_singleton_handler(
 fn gen_child_indexed_singleton_handler(
     indexed_singleton: &IndexedSingletonDef,
     repo_name: &Ident,
-    protocol: bool,
+    contract: bool,
 ) -> TokenStream {
     let ty_ident = &indexed_singleton.name;
     let parent_ident = {
@@ -1469,8 +1469,8 @@ fn gen_child_indexed_singleton_handler(
         &parents[0]
     };
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = handler_ident(ty_ident, protocol);
-    let (repository_parameter, repository_init) = repository_binding(repo_name, protocol);
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -1726,20 +1726,20 @@ fn method_ident_for_with_suffix(prefix: &str, ident: &Ident, suffix: &str) -> Id
     Ident::new(&name, ident.span())
 }
 
-fn handler_ident(ty: &Ident, protocol: bool) -> Ident {
+fn handler_ident(ty: &Ident, contract: bool) -> Ident {
     method_ident_for_with_suffix(
         "manage",
         ty,
-        if protocol {
-            "_protocol_handler"
+        if contract {
+            "_contract_handler"
         } else {
             "_handler"
         },
     )
 }
 
-fn repository_binding(repo_name: &Ident, protocol: bool) -> (TokenStream, TokenStream) {
-    if protocol {
+fn repository_binding(repo_name: &Ident, contract: bool) -> (TokenStream, TokenStream) {
+    if contract {
         (
             quote! { repository: ::std::sync::Arc<dyn #repo_name>, },
             quote! { let __repo = repository; },

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use fractic_crate_scaffolding::protocol::{OperationClass, ValueShape};
+use fractic_crate_scaffolding::contract::{OperationClass, ValueShape};
 use serde_json::json;
 
 mod fixture {
@@ -30,23 +30,23 @@ mod fixture {
     }
 }
 
-use fixture::{TestRepositoryImpl, test_repository_protocol};
+use fixture::{TestRepositoryImpl, test_repository_contract};
 
 #[tokio::test]
-async fn generated_protocol_describes_and_dispatches_the_repository() {
-    assert_eq!(test_repository_protocol::DESCRIPTOR.name, "test");
+async fn generated_contract_describes_and_dispatches_the_repository() {
+    assert_eq!(test_repository_contract::DESCRIPTOR.name, "test");
     assert_eq!(
-        test_repository_protocol::DESCRIPTOR.operations[0].class,
+        test_repository_contract::DESCRIPTOR.operations[0].class,
         OperationClass::Read
     );
     assert_eq!(
-        test_repository_protocol::DESCRIPTOR.operations[0]
+        test_repository_contract::DESCRIPTOR.operations[0]
             .input
             .shape,
         ValueShape::Object
     );
 
-    let output = test_repository_protocol::dispatch(
+    let output = test_repository_contract::dispatch(
         Arc::new(TestRepositoryImpl),
         "echo",
         json!({ "value": "hello" }),
@@ -58,8 +58,8 @@ async fn generated_protocol_describes_and_dispatches_the_repository() {
 }
 
 #[tokio::test]
-async fn generated_protocol_rejects_unknown_operations() {
-    let error = test_repository_protocol::dispatch(
+async fn generated_contract_rejects_unknown_operations() {
+    let error = test_repository_contract::dispatch(
         Arc::new(TestRepositoryImpl),
         "missing",
         serde_json::Value::Null,

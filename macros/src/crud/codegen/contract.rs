@@ -3,7 +3,7 @@ use quote::{format_ident, quote};
 
 use crate::{
     crud::model::{ConfigModel, IndexedSingletonDef, StandardDef},
-    helpers::{repository_protocol_name, to_snake_case},
+    helpers::{repository_contract_name, to_snake_case},
 };
 
 // Public interface.
@@ -12,8 +12,8 @@ use crate::{
 pub fn generate(model: &ConfigModel) -> TokenStream {
     let repo_name = &model.repository_name;
     let repo_name_snake = to_snake_case(&repo_name.to_string());
-    let protocol_module_name =
-        Ident::new(&format!("{}_protocol", repo_name_snake), repo_name.span());
+    let contract_module_name =
+        Ident::new(&format!("{}_contract", repo_name_snake), repo_name.span());
     let handlers_macro = Ident::new(
         &format!(
             "generate_{}_handlers",
@@ -21,19 +21,19 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         ),
         repo_name.span(),
     );
-    let repository_name = repository_protocol_name(&repo_name.to_string());
+    let repository_name = repository_contract_name(&repo_name.to_string());
     let descriptors = descriptors(model);
     let dispatch_arms = dispatch_arms(model);
 
     quote! {
-        pub mod #protocol_module_name {
+        pub mod #contract_module_name {
             use super::*;
-            use ::fractic_crate_scaffolding::protocol as __protocol;
+            use ::fractic_crate_scaffolding::contract as __contract;
 
-            super::#handlers_macro!(@protocol);
+            super::#handlers_macro!(@contract);
 
-            pub static DESCRIPTOR: __protocol::RepositoryDescriptor =
-                __protocol::RepositoryDescriptor {
+            pub static DESCRIPTOR: __contract::RepositoryDescriptor =
+                __contract::RepositoryDescriptor {
                     name: #repository_name,
                     repository_type: stringify!(#repo_name),
                     operations: &[#(#descriptors),*],
@@ -49,7 +49,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             > {
                 match operation {
                     #(#dispatch_arms),*,
-                    _ => Err(__protocol::unknown_operation(
+                    _ => Err(__contract::unknown_operation(
                         DESCRIPTOR.name,
                         operation,
                     )),
@@ -289,18 +289,18 @@ fn push_descriptor(
 ) {
     let name = format!("{object}.{operation}");
     let class = match class {
-        "read" => quote! { __protocol::OperationClass::Read },
-        "write" => quote! { __protocol::OperationClass::Write },
-        _ => quote! { __protocol::OperationClass::Destructive },
+        "read" => quote! { __contract::OperationClass::Read },
+        "write" => quote! { __contract::OperationClass::Write },
+        _ => quote! { __contract::OperationClass::Destructive },
     };
     let output_descriptor = output_descriptor(operation, ty);
     output.push(quote! {
-        __protocol::OperationDescriptor {
+        __contract::OperationDescriptor {
             name: #name,
             class: #class,
             deprecated: false,
-            input: __protocol::ValueDescriptor {
-                shape: __protocol::ValueShape::Object,
+            input: __contract::ValueDescriptor {
+                shape: __contract::ValueShape::Object,
                 rust_type: concat!("CrudOperation<", stringify!(#ty), ">"),
                 fields: #fields,
             },
@@ -312,24 +312,24 @@ fn push_descriptor(
 fn output_descriptor(operation: &str, ty: &Ident) -> TokenStream {
     match operation {
         "list" | "read-multiple" => quote! {
-            __protocol::ValueDescriptor {
-                shape: __protocol::ValueShape::Direct,
+            __contract::ValueDescriptor {
+                shape: __contract::ValueShape::Direct,
                 rust_type: concat!("Vec<", stringify!(#ty), ">"),
                 fields: &[],
             }
         },
         "read" => quote! {
-            __protocol::ValueDescriptor {
-                shape: __protocol::ValueShape::Direct,
+            __contract::ValueDescriptor {
+                shape: __contract::ValueShape::Direct,
                 rust_type: stringify!(#ty),
                 fields: &[],
             }
         },
         "create" => quote! {
-            __protocol::ValueDescriptor {
-                shape: __protocol::ValueShape::Object,
+            __contract::ValueDescriptor {
+                shape: __contract::ValueShape::Object,
                 rust_type: "object",
-                fields: &[__protocol::FieldDescriptor {
+                fields: &[__contract::FieldDescriptor {
                     name: "created_id",
                     rust_type: "PkSk",
                     required: true,
@@ -337,10 +337,10 @@ fn output_descriptor(operation: &str, ty: &Ident) -> TokenStream {
             }
         },
         "create-multiple" => quote! {
-            __protocol::ValueDescriptor {
-                shape: __protocol::ValueShape::Object,
+            __contract::ValueDescriptor {
+                shape: __contract::ValueShape::Object,
                 rust_type: "object",
-                fields: &[__protocol::FieldDescriptor {
+                fields: &[__contract::FieldDescriptor {
                     name: "created_ids",
                     rust_type: "Vec<PkSk>",
                     required: true,
@@ -348,8 +348,8 @@ fn output_descriptor(operation: &str, ty: &Ident) -> TokenStream {
             }
         },
         "update" | "delete" | "delete-multiple" | "delete-all" | "replace-all" => quote! {
-            __protocol::ValueDescriptor {
-                shape: __protocol::ValueShape::None,
+            __contract::ValueDescriptor {
+                shape: __contract::ValueShape::None,
                 rust_type: "()",
                 fields: &[],
             }
@@ -411,19 +411,19 @@ fn dispatch_arms(model: &ConfigModel) -> Vec<TokenStream> {
 
 fn operation_dispatches(output: &mut Vec<TokenStream>, ty: &Ident, operations: &[&str]) {
     let object = object_name(ty);
-    let handler = format_ident!("manage_{}_protocol_handler", to_snake_case(&ty.to_string()));
+    let handler = format_ident!("manage_{}_contract_handler", to_snake_case(&ty.to_string()));
     for operation in operations {
         let name = format!("{object}.{operation}");
         output.push(quote! {
             #name => {
                 let __operation: ::fractic_aws_apigateway::CrudOperation<#ty> =
-                    __protocol::decode_tagged_input(
+                    __contract::decode_tagged_input(
                         input,
                         "operation",
                         &#operation.replace('-', "_"),
                     )?;
                 let __result = #handler(repository.clone(), __operation).await?;
-                __protocol::encode_output(__result)
+                __contract::encode_output(__result)
             }
         });
     }
@@ -434,7 +434,7 @@ fn object_name(ident: &Ident) -> String {
 }
 
 fn field(name: &str, ty: &str, required: bool) -> TokenStream {
-    quote! { __protocol::FieldDescriptor { name: #name, rust_type: #ty, required: #required } }
+    quote! { __contract::FieldDescriptor { name: #name, rust_type: #ty, required: #required } }
 }
 
 fn fields_list(has_parent: bool) -> TokenStream {
