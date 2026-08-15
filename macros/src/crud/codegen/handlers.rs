@@ -37,33 +37,79 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
             Unit,
         }
     };
+    let placeholder_item_macro = quote! {
+        /// Constructs an object carrying only an ID for repository methods
+        /// whose typed references are represented by IDs on the wire.
+        macro_rules! __placeholder_item {
+            ($ty:path, $id:expr) => {{
+                $ty {
+                    id: $id,
+                    data: ::core::default::Default::default(),
+                    auto_fields: ::core::default::Default::default(),
+                }
+            }};
+        }
+    };
 
-    // Build handlers for root types.
+    let (root_handlers, child_handlers) = build_handlers(model, repo_name, false);
+    let (root_contract_handlers, child_contract_handlers) = build_handlers(model, repo_name, true);
+
+    // Compose generation macro.
+    quote! {
+        #[allow(unused_macros)]
+        #[macro_export]
+        macro_rules! #macro_name_ident {
+            (@contract) => {
+                #placeholder_item_macro
+                #crud_result_enum
+                #(#root_contract_handlers)*
+                #(#child_contract_handlers)*
+            };
+            ($($repo_init:tt)+) => {
+                macro_rules! __repo_init { () => { { $($repo_init)+ } } }
+
+                #placeholder_item_macro
+                #crud_result_enum
+                #(#root_handlers)*
+                #(#child_handlers)*
+            };
+        }
+
+        #[allow(unused_imports)]
+        pub(crate) use #macro_name_ident;
+    }
+}
+
+fn build_handlers(
+    model: &ConfigModel,
+    repo_name: &Ident,
+    contract: bool,
+) -> (Vec<TokenStream>, Vec<TokenStream>) {
     let root_handlers = model
         .ordered_objects
         .iter()
         .filter(|root| root.parents.is_none())
-        .map(|root| gen_root_standard_handler(root, true, repo_name))
+        .map(|root| gen_root_standard_handler(root, true, repo_name, contract))
         .chain(
             model
                 .unordered_objects
                 .iter()
                 .filter(|root| root.parents.is_none())
-                .map(|root| gen_root_standard_handler(root, false, repo_name)),
+                .map(|root| gen_root_standard_handler(root, false, repo_name, contract)),
         )
         .chain(
             model
                 .batch_objects
                 .iter()
                 .filter(|batch| batch.parents.is_none())
-                .map(|batch| gen_root_batch_handler(batch, repo_name)),
+                .map(|batch| gen_root_batch_handler(batch, repo_name, contract)),
         )
         .chain(
             model
                 .singleton_objects
                 .iter()
                 .filter(|singleton| singleton.parents.is_none())
-                .map(|singleton| gen_root_singleton_handler(singleton, repo_name)),
+                .map(|singleton| gen_root_singleton_handler(singleton, repo_name, contract)),
         )
         .chain(
             model
@@ -71,7 +117,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 .iter()
                 .filter(|indexed_singleton| indexed_singleton.parents.is_none())
                 .map(|indexed_singleton| {
-                    gen_root_indexed_singleton_handler(indexed_singleton, repo_name)
+                    gen_root_indexed_singleton_handler(indexed_singleton, repo_name, contract)
                 }),
         )
         .collect::<Vec<_>>();
@@ -81,27 +127,27 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
         .ordered_objects
         .iter()
         .filter(|child| child.parents.is_some())
-        .map(|child| gen_child_standard_handler(child, true, repo_name))
+        .map(|child| gen_child_standard_handler(child, true, repo_name, contract))
         .chain(
             model
                 .unordered_objects
                 .iter()
                 .filter(|child| child.parents.is_some())
-                .map(|child| gen_child_standard_handler(child, false, repo_name)),
+                .map(|child| gen_child_standard_handler(child, false, repo_name, contract)),
         )
         .chain(
             model
                 .batch_objects
                 .iter()
                 .filter(|batch| batch.parents.is_some())
-                .map(|batch| gen_child_batch_handler(batch, repo_name)),
+                .map(|batch| gen_child_batch_handler(batch, repo_name, contract)),
         )
         .chain(
             model
                 .singleton_objects
                 .iter()
                 .filter(|singleton| singleton.parents.is_some())
-                .map(|singleton| gen_child_singleton_handler(singleton, repo_name)),
+                .map(|singleton| gen_child_singleton_handler(singleton, repo_name, contract)),
         )
         .chain(
             model
@@ -109,60 +155,24 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 .iter()
                 .filter(|indexed_singleton| indexed_singleton.parents.is_some())
                 .map(|indexed_singleton| {
-                    gen_child_indexed_singleton_handler(indexed_singleton, repo_name)
+                    gen_child_indexed_singleton_handler(indexed_singleton, repo_name, contract)
                 }),
         )
         .collect::<Vec<_>>();
 
-    // Compose generation macro.
-    let root_handlers_iter = root_handlers.into_iter();
-    let child_handlers_iter = child_handlers.into_iter();
-    quote! {
-        #[allow(unused_macros)]
-        #[macro_export]
-        macro_rules! #macro_name_ident {
-            ($($repo_init:tt)+) => {
-                macro_rules! __repo_init { () => { { $($repo_init)+ } } }
-
-                /// The generated handlers forward CRUD operations into calls to
-                /// repository methods, but for type safety the repository
-                /// methods require typed object references (ex. &T `parent` or
-                /// `after`). Since the CRUD API calls take IDs rather than full
-                /// objects, we must construct placeholder objects to satisfy
-                /// the type requirements. Since the internal repository logic
-                /// only uses the object's ID, this is a bit hacky but safe.
-                ///
-                /// This helper simply constructs an empty object of type $ty,
-                /// with no data except the provided ID.
-                macro_rules! __placeholder_item {
-                    ($ty:path, $id:expr) => {{
-                        $ty {
-                            id: $id,
-                            data: ::core::default::Default::default(),
-                            auto_fields: ::core::default::Default::default(),
-                        }
-                    }};
-                }
-
-                #crud_result_enum
-                #(#root_handlers_iter)*
-                #(#child_handlers_iter)*
-            };
-        }
-
-        #[allow(unused_imports)]
-        pub(crate) use #macro_name_ident;
-    }
+    (root_handlers, child_handlers)
 }
 
 fn gen_root_standard_handler(
     root: &StandardDef,
     is_ordered: bool,
     repo_name: &Ident,
+    contract: bool,
 ) -> TokenStream {
     let ty_ident = &root.name;
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
     let has_children = root.has_children();
 
     let list_arm = quote! {
@@ -432,10 +442,11 @@ fn gen_root_standard_handler(
 
     quote! {
         pub async fn #handler_ident(
+            #repository_parameter
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             use ::fractic_aws_apigateway::CrudOperation::*;
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
+            #repository_init
             match operation {
                 #list_arm
                 #create_arm
@@ -452,10 +463,11 @@ fn gen_root_standard_handler(
     }
 }
 
-fn gen_root_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
+fn gen_root_batch_handler(batch: &BatchDef, repo_name: &Ident, contract: bool) -> TokenStream {
     let ty_ident = &batch.name;
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -514,10 +526,11 @@ fn gen_root_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
 
     quote! {
         pub async fn #handler_ident(
+            #repository_parameter
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             use ::fractic_aws_apigateway::CrudOperation::*;
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
+            #repository_init
             match operation {
                 #list_arm
                 #delete_all_arm
@@ -528,10 +541,15 @@ fn gen_root_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
     }
 }
 
-fn gen_root_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> TokenStream {
+fn gen_root_singleton_handler(
+    singleton: &SingletonDef,
+    repo_name: &Ident,
+    contract: bool,
+) -> TokenStream {
     let ty_ident = &singleton.name;
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
 
     let read_arm = quote! {
         Read { item_ref } => {
@@ -556,7 +574,6 @@ fn gen_root_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> To
                 );
             }
             let __item = __repo.#manager_ident().get().await?;
-            let __item = __item.ok_or_else(|| ::fractic_aws_dynamo::errors::DynamoNotFound::new())?;
             ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
         },
     };
@@ -636,10 +653,11 @@ fn gen_root_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> To
 
     quote! {
         pub async fn #handler_ident(
+            #repository_parameter
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             use ::fractic_aws_apigateway::CrudOperation::*;
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
+            #repository_init
             match operation {
                 #read_arm
                 #create_arm
@@ -653,10 +671,12 @@ fn gen_root_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> To
 fn gen_root_indexed_singleton_handler(
     indexed_singleton: &IndexedSingletonDef,
     repo_name: &Ident,
+    contract: bool,
 ) -> TokenStream {
     let ty_ident = &indexed_singleton.name;
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -698,7 +718,6 @@ fn gen_root_indexed_singleton_handler(
                 );
             }
             let __item = __repo.#manager_ident().get(&key).await?;
-            let __item = __item.ok_or_else(|| ::fractic_aws_dynamo::errors::DynamoNotFound::new())?;
             ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
         },
     };
@@ -727,10 +746,6 @@ fn gen_root_indexed_singleton_handler(
             }
             let __futs = keys.iter().map(|key| __repo.#manager_ident().get(key));
             let __items = ::futures_util::future::try_join_all(__futs).await?;
-            let __items = __items
-                .into_iter()
-                .collect::<::std::option::Option<::std::vec::Vec<_>>>()
-                .ok_or_else(|| ::fractic_aws_dynamo::errors::DynamoNotFound::new())?;
             ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
         },
     };
@@ -877,10 +892,11 @@ fn gen_root_indexed_singleton_handler(
 
     quote! {
         pub async fn #handler_ident(
+            #repository_parameter
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             use ::fractic_aws_apigateway::CrudOperation::*;
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
+            #repository_init
             match operation {
                 #list_arm
                 #read_arm
@@ -900,6 +916,7 @@ fn gen_child_standard_handler(
     child: &StandardDef,
     is_ordered: bool,
     repo_name: &Ident,
+    contract: bool,
 ) -> TokenStream {
     let ty_ident = &child.name;
     let parent_ident = {
@@ -912,7 +929,8 @@ fn gen_child_standard_handler(
         &parents[0]
     };
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
     let has_children = child.has_children();
 
     let list_arm = quote! {
@@ -1189,10 +1207,11 @@ fn gen_child_standard_handler(
 
     quote! {
         pub async fn #handler_ident(
+            #repository_parameter
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             use ::fractic_aws_apigateway::CrudOperation::*;
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
+            #repository_init
             match operation {
                 #list_arm
                 #create_arm
@@ -1209,7 +1228,7 @@ fn gen_child_standard_handler(
     }
 }
 
-fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
+fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident, contract: bool) -> TokenStream {
     let ty_ident = &batch.name;
     let parent_ident = {
         // These idents are used only to create placeholder objects, so we can
@@ -1221,7 +1240,8 @@ fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
         &parents[0]
     };
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -1283,10 +1303,11 @@ fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
 
     quote! {
         pub async fn #handler_ident(
+            #repository_parameter
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             use ::fractic_aws_apigateway::CrudOperation::*;
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
+            #repository_init
             match operation {
                 #list_arm
                 #delete_all_arm
@@ -1297,7 +1318,11 @@ fn gen_child_batch_handler(batch: &BatchDef, repo_name: &Ident) -> TokenStream {
     }
 }
 
-fn gen_child_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> TokenStream {
+fn gen_child_singleton_handler(
+    singleton: &SingletonDef,
+    repo_name: &Ident,
+    contract: bool,
+) -> TokenStream {
     let ty_ident = &singleton.name;
     let parent_ident = {
         let parents = singleton
@@ -1307,7 +1332,8 @@ fn gen_child_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> T
         &parents[0]
     };
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
 
     let read_arm = quote! {
         Read { item_ref } => {
@@ -1333,7 +1359,6 @@ fn gen_child_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> T
             };
             let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
             let __item = __repo.#manager_ident().get(&__tmp_parent).await?;
-            let __item = __item.ok_or_else(|| ::fractic_aws_dynamo::errors::DynamoNotFound::new())?;
             ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
         },
     };
@@ -1415,10 +1440,11 @@ fn gen_child_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> T
 
     quote! {
         pub async fn #handler_ident(
+            #repository_parameter
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             use ::fractic_aws_apigateway::CrudOperation::*;
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
+            #repository_init
             match operation {
                 #read_arm
                 #create_arm
@@ -1432,6 +1458,7 @@ fn gen_child_singleton_handler(singleton: &SingletonDef, repo_name: &Ident) -> T
 fn gen_child_indexed_singleton_handler(
     indexed_singleton: &IndexedSingletonDef,
     repo_name: &Ident,
+    contract: bool,
 ) -> TokenStream {
     let ty_ident = &indexed_singleton.name;
     let parent_ident = {
@@ -1442,7 +1469,8 @@ fn gen_child_indexed_singleton_handler(
         &parents[0]
     };
     let manager_ident = method_ident_for("manage", ty_ident);
-    let handler_ident = method_ident_for_with_suffix("manage", ty_ident, "_handler");
+    let handler_ident = handler_ident(ty_ident, contract);
+    let (repository_parameter, repository_init) = repository_binding(repo_name, contract);
 
     let list_arm = quote! {
         List { parent_id } => {
@@ -1486,7 +1514,6 @@ fn gen_child_indexed_singleton_handler(
             };
             let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
             let __item = __repo.#manager_ident().get(&__tmp_parent, &key).await?;
-            let __item = __item.ok_or_else(|| ::fractic_aws_dynamo::errors::DynamoNotFound::new())?;
             ::std::result::Result::Ok(__CrudOperationResult::Item(__item))
         },
     };
@@ -1516,10 +1543,6 @@ fn gen_child_indexed_singleton_handler(
             let __tmp_parent = __placeholder_item!(#parent_ident, parent_id);
             let __futs = keys.iter().map(|key| __repo.#manager_ident().get(&__tmp_parent, key));
             let __items = ::futures_util::future::try_join_all(__futs).await?;
-            let __items = __items
-                .into_iter()
-                .collect::<::std::option::Option<::std::vec::Vec<_>>>()
-                .ok_or_else(|| ::fractic_aws_dynamo::errors::DynamoNotFound::new())?;
             ::std::result::Result::Ok(__CrudOperationResult::Items(__items))
         },
     };
@@ -1671,10 +1694,11 @@ fn gen_child_indexed_singleton_handler(
 
     quote! {
         pub async fn #handler_ident(
+            #repository_parameter
             operation: ::fractic_aws_apigateway::CrudOperation<#ty_ident>
         ) -> ::std::result::Result<__CrudOperationResult<#ty_ident>, ::fractic_server_error::ServerError> {
             use ::fractic_aws_apigateway::CrudOperation::*;
-            let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
+            #repository_init
             match operation {
                 #list_arm
                 #read_arm
@@ -1700,4 +1724,32 @@ fn method_ident_for_with_suffix(prefix: &str, ident: &Ident, suffix: &str) -> Id
     let snake = to_snake_case(&ident.to_string());
     let name = format!("{}_{}{}", prefix, snake, suffix);
     Ident::new(&name, ident.span())
+}
+
+fn handler_ident(ty: &Ident, contract: bool) -> Ident {
+    method_ident_for_with_suffix(
+        "manage",
+        ty,
+        if contract {
+            "_contract_handler"
+        } else {
+            "_handler"
+        },
+    )
+}
+
+fn repository_binding(repo_name: &Ident, contract: bool) -> (TokenStream, TokenStream) {
+    if contract {
+        (
+            quote! { repository: ::std::sync::Arc<dyn #repo_name>, },
+            quote! { let __repo = repository; },
+        )
+    } else {
+        (
+            quote! {},
+            quote! {
+                let __repo: ::std::sync::Arc<dyn #repo_name> = { __repo_init!() };
+            },
+        )
+    }
 }

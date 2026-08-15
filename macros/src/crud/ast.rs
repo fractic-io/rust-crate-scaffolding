@@ -214,11 +214,11 @@ impl Parse for ObjectDef {
 
 fn parse_archive_prefix(input: ParseStream<'_>) -> Result<bool> {
     let fork = input.fork();
-    if let Ok(ident) = fork.parse::<Ident>() {
-        if ident.to_string() == "archive" {
-            let _: Ident = input.parse()?;
-            return Ok(true);
-        }
+    if let Ok(ident) = fork.parse::<Ident>()
+        && ident == "archive"
+    {
+        let _: Ident = input.parse()?;
+        return Ok(true);
     }
     Ok(false)
 }

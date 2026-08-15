@@ -1,8 +1,40 @@
 # Overview
 
-Non-obvious things worth knowing before changing this crate:
+This crate provides a structured way to describe a repository so that its
+boilerplate can be derived from one source of truth. A definition becomes a
+repository trait plus adapters such as `fractic-aws-apigateway` handlers and a
+machine-readable repository contract. The point is that every way of calling a
+repository shares the same operations, types, and behavior instead of
+reimplementing them by hand.
 
-- There are effectively two separate macro pipelines: `crud` and `repository`.
-- The reliable edit path is `ast.rs` -> `model.rs` -> `codegen/*.rs`.
-- Generated code depends on paths/macros not defined here, especially `fractic_*` crates and `__repo_init!()`.
-- Test coverage is minimal, and currently only covers parts of CRUD parsing/modeling.
+There are two kinds of definition:
+
+- `repository_scaffolding!` describes arbitrary operations by name, input,
+  output, execution style, and operation class.
+- `crud_scaffolding!` describes a DynamoDB object graph; its object kinds and
+  relationships imply the repository methods and CRUD operations.
+
+The non-obvious parts:
+
+- The public `fractic-crate-scaffolding` crate is a facade. It re-exports the
+  procedural macros and the contract API, so consumers need only this one
+  dependency. Its internal packages live under `macros` and `contract`.
+- The macro implementations are separate pipelines under
+  `macros/src/repository` and `macros/src/crud`. Features exposed by both, such
+  as handlers or contract dispatch, usually need changes in both.
+- Each repository directly exposes a generated `<repository>_contract` module
+  containing a static descriptor and serialized dispatch function. Dispatch
+  accepts an `Arc<dyn Repository>`, so callers can provide a local, test, or
+  network-backed implementation without another generated macro invocation.
+- Contract descriptors and codecs are implemented by the internal
+  `fractic-repository-contract` library and exposed as
+  `fractic_crate_scaffolding::contract`. Generated dispatch returns the same
+  `ServerError` used by repository traits.
+- An arbitrary operation's `class` (`read`, `write`, `destructive`, or
+  `internal`) is explicit policy metadata. Missing `class` means `internal`; it
+  is not guessed from the operation name.
+- API Gateway handler macros still expand in the consuming crate. Paths such as
+  `fractic_*`, `serde_json`, and helper macros such as `__repo_init!()` must
+  therefore resolve there.
+- Internally, both pipelines follow `ast.rs` (parse) -> `model.rs` (validate and
+  normalize) -> `codegen/*.rs` (emit Rust).

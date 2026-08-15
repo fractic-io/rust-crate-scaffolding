@@ -53,3 +53,30 @@ pub fn to_pascal_case(input: &str) -> String {
     }
     out
 }
+
+/// Stable kebab-case contract name derived from a generated repository trait.
+pub fn repository_contract_name(repository_name: &str) -> String {
+    let base = repository_name
+        .strip_suffix("AccessRepository")
+        .or_else(|| repository_name.strip_suffix("Repository"))
+        .unwrap_or(repository_name);
+    to_snake_case(base).replace('_', "-")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repository_contract_name;
+
+    #[test]
+    fn contract_names_remove_repository_role_suffixes() {
+        assert_eq!(
+            repository_contract_name("RoutesPrimaryAccessRepository"),
+            "routes-primary"
+        );
+        assert_eq!(
+            repository_contract_name("ControlCrudRepository"),
+            "control-crud"
+        );
+        assert_eq!(repository_contract_name("FormsRepository"), "forms");
+    }
+}

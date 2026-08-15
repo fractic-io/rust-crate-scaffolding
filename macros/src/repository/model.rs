@@ -19,6 +19,15 @@ pub struct FunctionModel {
     pub is_direct: bool,
     pub is_deprecated: bool,
     pub deprecated_note: Option<LitStr>,
+    pub class: OperationClass,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperationClass {
+    Read,
+    Write,
+    Destructive,
+    Internal,
 }
 
 #[derive(Debug)]
@@ -95,6 +104,12 @@ fn build_function_model(
         is_direct,
         is_deprecated,
         deprecated_note,
+        class: match func.class {
+            ast::ClassAst::Read => OperationClass::Read,
+            ast::ClassAst::Write => OperationClass::Write,
+            ast::ClassAst::Destructive => OperationClass::Destructive,
+            ast::ClassAst::Internal => OperationClass::Internal,
+        },
     })
 }
 
@@ -160,8 +175,7 @@ fn replace_inline_structs_in_tokens(
     helper_structs: &mut Vec<HelperStruct>,
 ) -> Result<TokenStream2> {
     let mut out = TokenStream2::new();
-    let mut iter = tokens.into_iter().peekable();
-    while let Some(tt) = iter.next() {
+    for tt in tokens {
         match tt {
             TokenTree::Group(g) if g.delimiter() == Delimiter::Brace => {
                 // This is an inline struct at this position.

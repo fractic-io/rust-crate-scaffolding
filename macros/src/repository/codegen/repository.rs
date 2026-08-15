@@ -239,23 +239,21 @@ fn rewrite_lifetimes_in_type(ty: &mut Type, target: LifetimeTarget, needs_a: &mu
     match ty {
         Type::Reference(r) => {
             match target {
-                LifetimeTarget::MethodArg => match &mut r.lifetime {
-                    Some(l) => {
-                        if is_lifetime_a_or_underscore(l) {
-                            *l = lifetime_named("'a");
-                            *needs_a = true;
-                        }
+                LifetimeTarget::MethodArg => {
+                    if let Some(l) = &mut r.lifetime
+                        && is_lifetime_a_or_underscore(l)
+                    {
+                        *l = lifetime_named("'a");
+                        *needs_a = true;
                     }
-                    None => {}
-                },
-                LifetimeTarget::SerdeStructField => match &mut r.lifetime {
-                    Some(l) => {
-                        if is_lifetime_a_or_underscore(l) {
-                            *l = lifetime_named("'static");
-                        }
+                }
+                LifetimeTarget::SerdeStructField => {
+                    if let Some(l) = &mut r.lifetime
+                        && is_lifetime_a_or_underscore(l)
+                    {
+                        *l = lifetime_named("'static");
                     }
-                    None => {}
-                },
+                }
             }
             rewrite_lifetimes_in_type(&mut r.elem, target, needs_a);
         }
@@ -306,16 +304,16 @@ fn rewrite_lifetimes_in_type(ty: &mut Type, target: LifetimeTarget, needs_a: &mu
         }
         Type::TraitObject(obj) => {
             for b in obj.bounds.iter_mut() {
-                if let TypeParamBound::Lifetime(l) = b {
-                    if is_lifetime_a_or_underscore(l) {
-                        match target {
-                            LifetimeTarget::MethodArg => {
-                                *l = lifetime_named("'a");
-                                *needs_a = true;
-                            }
-                            LifetimeTarget::SerdeStructField => {
-                                *l = lifetime_named("'static");
-                            }
+                if let TypeParamBound::Lifetime(l) = b
+                    && is_lifetime_a_or_underscore(l)
+                {
+                    match target {
+                        LifetimeTarget::MethodArg => {
+                            *l = lifetime_named("'a");
+                            *needs_a = true;
+                        }
+                        LifetimeTarget::SerdeStructField => {
+                            *l = lifetime_named("'static");
                         }
                     }
                 }
@@ -323,16 +321,16 @@ fn rewrite_lifetimes_in_type(ty: &mut Type, target: LifetimeTarget, needs_a: &mu
         }
         Type::ImplTrait(it) => {
             for b in it.bounds.iter_mut() {
-                if let TypeParamBound::Lifetime(l) = b {
-                    if is_lifetime_a_or_underscore(l) {
-                        match target {
-                            LifetimeTarget::MethodArg => {
-                                *l = lifetime_named("'a");
-                                *needs_a = true;
-                            }
-                            LifetimeTarget::SerdeStructField => {
-                                *l = lifetime_named("'static");
-                            }
+                if let TypeParamBound::Lifetime(l) = b
+                    && is_lifetime_a_or_underscore(l)
+                {
+                    match target {
+                        LifetimeTarget::MethodArg => {
+                            *l = lifetime_named("'a");
+                            *needs_a = true;
+                        }
+                        LifetimeTarget::SerdeStructField => {
+                            *l = lifetime_named("'static");
                         }
                     }
                 }

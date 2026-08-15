@@ -185,14 +185,14 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         ));
                     }
 
-                    if let Some(ref parents) = parent {
-                        if parents.is_empty() {
-                            return Err(Error::new(
-                                name.span(),
-                                "`singleton` objects require at least one `parent` when `parent` \
-                                 is specified",
-                            ));
-                        }
+                    if let Some(ref parents) = parent
+                        && parents.is_empty()
+                    {
+                        return Err(Error::new(
+                            name.span(),
+                            "`singleton` objects require at least one `parent` when `parent` is \
+                             specified",
+                        ));
                     }
 
                     singleton_objects.push(SingletonDef {
@@ -214,14 +214,14 @@ impl TryFrom<ast::ConfigAst> for ConfigModel {
                         ));
                     }
 
-                    if let Some(ref parents) = parent {
-                        if parents.is_empty() {
-                            return Err(Error::new(
-                                name.span(),
-                                "`indexed_singleton` objects require at least one `parent` when \
-                                 `parent` is specified",
-                            ));
-                        }
+                    if let Some(ref parents) = parent
+                        && parents.is_empty()
+                    {
+                        return Err(Error::new(
+                            name.span(),
+                            "`indexed_singleton` objects require at least one `parent` when \
+                             `parent` is specified",
+                        ));
                     }
 
                     indexed_singleton_objects.push(IndexedSingletonDef {
@@ -260,16 +260,16 @@ fn validate_parents(
     kind_label: &str,
     parents: Option<Vec<Ident>>,
 ) -> Result<Option<Vec<Ident>>> {
-    if let Some(ref list) = parents {
-        if list.is_empty() {
-            return Err(Error::new(
-                span,
-                format!(
-                    "{} objects require at least one `parent` when `parent` is specified",
-                    kind_label
-                ),
-            ));
-        }
+    if let Some(ref list) = parents
+        && list.is_empty()
+    {
+        return Err(Error::new(
+            span,
+            format!(
+                "{} objects require at least one `parent` when `parent` is specified",
+                kind_label
+            ),
+        ));
     }
     Ok(parents)
 }
