@@ -23,7 +23,6 @@ integration test.
   `macros/src/crud`, and a case in the integration test.
 - Generated code must resolve in the consuming crate (`fractic_*`,
   `serde_json`, `__repo_init!()`).
-- Commit / PR titles: `[repository] …`, `[crud] …`, `[contract] …`.
 
 ## Docs
 
