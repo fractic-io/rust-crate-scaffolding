@@ -48,7 +48,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 ::fractic_server_error::ServerError,
             > {
                 match operation {
-                    #(#dispatch_arms),*,
+                    #(#dispatch_arms,)*
                     _ => Err(__contract::unknown_operation(
                         DESCRIPTOR.name,
                         operation,
