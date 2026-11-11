@@ -40,7 +40,7 @@ pub fn generate(model: &ConfigModel) -> TokenStream {
                 ::fractic_server_error::ServerError,
             > {
                 match operation {
-                    #(#dispatch_arms),*,
+                    #(#dispatch_arms,)*
                     _ => Err(__contract::unknown_operation(
                         DESCRIPTOR.name,
                         operation,
@@ -153,10 +153,14 @@ fn dispatch_arm(function: &crate::repository::model::FunctionModel) -> TokenStre
     } else {
         quote! { repository.#fn_ident(#call_args).await }
     };
+    // The contract keeps deprecated operations callable by name.
+    let allow_deprecated = function
+        .is_deprecated
+        .then(|| quote! { #[allow(deprecated)] });
     let resolve = if function.is_direct {
-        quote! { let __result = #invoke; }
+        quote! { #allow_deprecated let __result = #invoke; }
     } else {
-        quote! { let __result = #invoke?; }
+        quote! { #allow_deprecated let __result = #invoke?; }
     };
     let wrap = match &function.output {
         ValueModel::Struct { fields } if fields.len() == 1 => {
