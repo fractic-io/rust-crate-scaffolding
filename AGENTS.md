@@ -17,7 +17,7 @@ integration test.
 
 - Test with `--workspace` (through a product devshell); verify codegen
   changes by building the consumers (`storyengine/api/v0`,
-  `app/backend/api/v1`) through their `[patch]`.
+  `app/backend/api/v1`), which compile this checkout.
 - A feature exposed by both pipelines (handlers, contract dispatch,
   annotations) needs changes in both `macros/src/repository` and
   `macros/src/crud`, and a case in the integration test.
